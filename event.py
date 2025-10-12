@@ -1,21 +1,28 @@
 import json
 
 from enum import Enum, unique
+from typing import Dict, Any
 
 @unique
-class EventType(Enum):
+class OpCode(Enum):
+    DISPATCH = 0
+    HEARTBEAT = 1
     HELLO = 10
     HEARTBEAT_ACK = 11
 
 class Event:
-    event_type: EventType
+    opcode: OpCode
+    _parsed: Dict[str, Any]
 
     def __init__(self, raw):
         self._parsed = json.loads(raw)
-        self.event_type = EventType(self._parsed["op"])
+        self.opcode = OpCode(self._parsed["op"])
 
     def get(self, prop):
         return self._parsed["d"][prop]
 
+    def seq_num(self):
+        return self._parsed["s"]
+
     def __str__(self):
-        return f"Event type: {self.event_type}, raw: {self._parsed}"
+        return f"Opcode: {self.opcode}, Seq: {self.seq_num()}, Raw: {self._parsed}"
