@@ -6,6 +6,7 @@ import websockets
 from event import Event, OpCode
 from typing import Callable, Dict, Any
 
+
 class Client:
     url: str
     intents: int
@@ -45,16 +46,15 @@ class Client:
         print(">>> IDENFITY")
         await self.send(2, data)
 
-
     async def handle_hello(self, event: Event):
         print("<<< HELLO")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         initial_wait = heartbeat_interval * random.random()
         print(f"*** Heartbeat interval: {heartbeat_interval:.3f} s")
         print(f"*** Will start regular heartbeats in {initial_wait:.3f} s")
+        await self.identify()
         await asyncio.sleep(initial_wait)
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
-        await self.identify()
 
     async def handle_dispatch(self, event: Event):
         print(f"<<< DISPATCH: {event}")
@@ -63,7 +63,6 @@ class Client:
             command_name = data["name"]
             self._interaction_handlers[command_name](event)
 
-    
     async def receive_loop(self):
         while True:
             event = Event(await self._ws.recv())

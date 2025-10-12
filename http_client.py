@@ -8,6 +8,7 @@ from config import Config
 from event import Event
 from typing import Dict, Any
 
+
 class HttpClient:
     _api_url: str
     _config: Config
