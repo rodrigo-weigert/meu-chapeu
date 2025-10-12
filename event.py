@@ -3,12 +3,15 @@ import json
 from enum import Enum, unique
 from typing import Dict, Any
 
+
 @unique
 class OpCode(Enum):
     DISPATCH = 0
     HEARTBEAT = 1
+    IDENTIFY = 2
     HELLO = 10
     HEARTBEAT_ACK = 11
+
 
 class Event:
     opcode: OpCode

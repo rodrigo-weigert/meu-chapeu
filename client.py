@@ -24,13 +24,13 @@ class Client:
     def register_interaction_handler(self, interaction_name: str, handler: Callable[[Event], Any]):
         self._interaction_handlers[interaction_name] = handler
 
-    async def send(self, op, data):
-        payload = {"op": op, "d": data}
+    async def send(self, op: OpCode, data: Any):
+        payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
 
     async def send_heartbeat(self):
         print(f">>> HEARTBEAT d = {self._last_seq}")
-        await self.send(1, self._last_seq)
+        await self.send(OpCode.HEARTBEAT, self._last_seq)
 
     async def regular_heartbeats(self, heartbeat_interval):
         while True:
@@ -44,7 +44,7 @@ class Client:
                                "browser": "meu_chapeu",
                                "device": "meu_chapeu"}}
         print(">>> IDENFITY")
-        await self.send(2, data)
+        await self.send(OpCode.IDENTIFY, data)
 
     async def handle_hello(self, event: Event):
         print("<<< HELLO")
