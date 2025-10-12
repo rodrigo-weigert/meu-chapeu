@@ -13,6 +13,7 @@ class Config:
         self._api_version = os.getenv("API_VERSION")
         self._encoding = os.getenv("API_ENCODING")
         self._api_url = os.getenv("API_URL")
+        self._application_id = os.getenv("APPLICATION_ID")
 
     @property
     def api_token(self):
@@ -29,3 +30,7 @@ class Config:
     @property
     def api_url(self):
         return self._api_url
+
+    @property
+    def application_id(self):
+        return self._application_id
