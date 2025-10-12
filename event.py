@@ -12,17 +12,18 @@ class OpCode(Enum):
 
 class Event:
     opcode: OpCode
+    name: str | None
+    seq_num: int | None
     _parsed: Dict[str, Any]
 
     def __init__(self, raw):
         self._parsed = json.loads(raw)
         self.opcode = OpCode(self._parsed["op"])
+        self.name = self._parsed["t"]
+        self.seq_num = self._parsed["s"]
 
-    def get(self, prop):
+    def get(self, prop: str) -> Any:
         return self._parsed["d"][prop]
 
-    def seq_num(self):
-        return self._parsed["s"]
-
     def __str__(self):
-        return f"Opcode: {self.opcode}, Seq: {self.seq_num()}, Raw: {self._parsed}"
+        return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Name: {self.name}, Raw: {self._parsed}"

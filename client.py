@@ -4,18 +4,24 @@ import random
 import websockets
 
 from event import Event, OpCode
+from typing import Callable, Dict, Any
 
 class Client:
     url: str
     intents: int
     _token: str
     _last_seq: int | None
+    _interaction_handlers: Dict[str, Callable[[Event], Any]]
 
     def __init__(self, url, intents, token):
         self.url = url
         self._last_seq = None
         self.intents = intents
         self._token = token
+        self._interaction_handlers = {}
+
+    def register_interaction_handler(self, interaction_name: str, handler: Callable[[Event], Any]):
+        self._interaction_handlers[interaction_name] = handler
 
     async def send(self, op, data):
         payload = {"op": op, "d": data}
@@ -40,7 +46,7 @@ class Client:
         await self.send(2, data)
 
 
-    async def handle_hello(self, event):
+    async def handle_hello(self, event: Event):
         print("<<< HELLO")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         initial_wait = heartbeat_interval * random.random()
@@ -49,12 +55,20 @@ class Client:
         await asyncio.sleep(initial_wait)
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
         await self.identify()
+
+    async def handle_dispatch(self, event: Event):
+        print(f"<<< DISPATCH: {event}")
+        if event.name == "INTERACTION_CREATE":
+            data = event.get("data")
+            command_name = data["name"]
+            self._interaction_handlers[command_name](event)
+
     
     async def receive_loop(self):
         while True:
             event = Event(await self._ws.recv())
-            if event.seq_num():
-                self._last_seq = event.seq_num()
+            if event.seq_num:
+                self._last_seq = event.seq_num
             match event.opcode:
                 case OpCode.HELLO:
                     asyncio.create_task(self.handle_hello(event))
@@ -63,7 +77,7 @@ class Client:
                 case OpCode.HEARTBEAT:
                     await self.send_heartbeat()
                 case OpCode.DISPATCH:
-                    print(f"<<< DISPATCH {event}")
+                    asyncio.create_task(self.handle_dispatch(event))
 
     async def _start(self):
         self._ws = await websockets.connect(self.url)
