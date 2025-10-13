@@ -41,6 +41,10 @@ class HttpClient:
         print(f"*** Command created: {resp}")
         return resp
 
+    def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
+        resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
+        return resp["channel_id"] if "channel_id" in resp else None
+
     def respond_interaction_with_message(self, interaction_event: Event, message: str) -> requests.Response:
         id = interaction_event.get("id")
         token = interaction_event.get("token")

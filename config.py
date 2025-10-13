@@ -26,7 +26,7 @@ class Config:
     @property
     def encoding(self):
         return self._encoding
-    
+
     @property
     def api_url(self):
         return self._api_url
