@@ -9,6 +9,7 @@ class OpCode(Enum):
     DISPATCH = 0
     HEARTBEAT = 1
     IDENTIFY = 2
+    VOICE_STATE_UPDATE = 4
     HELLO = 10
     HEARTBEAT_ACK = 11
 
@@ -26,7 +27,7 @@ class Event:
         self.seq_num = self._parsed["s"]
 
     def get(self, prop: str) -> Any:
-        return self._parsed["d"][prop]
+        return self._parsed["d"][prop] if prop in self._parsed["d"] else None
 
     def __str__(self):
         return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Name: {self.name}, Raw: {self._parsed}"
