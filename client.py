@@ -12,6 +12,7 @@ class Client:
     url: str
     intents: int
     config: Config
+    _ws: websockets.ClientConnection | None
     _last_seq: int | None
     _interaction_handlers: Dict[str, Callable[[Event], Any]]
     _voice_state_updates: Dict[str, asyncio.Future[Event]]
