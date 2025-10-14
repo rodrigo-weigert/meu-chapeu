@@ -2,11 +2,11 @@ import asyncio
 import json
 import random
 import socket
-import struct
+import udp
 import websockets
 
 from voice_event import VoiceEvent, VoiceOpCode
-from typing import Any
+from typing import Any, List
 from config import Config
 from logs import logger as base_logger
 
@@ -19,9 +19,11 @@ class VoiceClient:
     session_id: str
     token: str
     config: Config
+    ssrc: int
     _last_seq: int
     _ws: websockets.ClientConnection | None
     _sock: socket.socket
+    _encryption_key: List[int] | None
 
     def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
         self.url = f"wss://{url}?v=8"
@@ -30,6 +32,7 @@ class VoiceClient:
         self.guild_id = guild_id
         self.config = config
         self._last_seq = -1
+        self.ssrc = 0
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -62,20 +65,31 @@ class VoiceClient:
         await self.identify()
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
 
-    def _ip_discovery_packet(self, ssrc: int) -> bytes:
-        fmt = "!HHI" + 66 * "x"
-        return struct.pack(fmt, 0x1, 70, ssrc)
+    def _prepare_socket(self, ip: str, port: int) -> None:
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.bind(("0.0.0.0", 2917))  # TODO should use a port range to support multiple simultaneous voice connections
+        self._sock.connect((ip, port))
 
-    def handle_ready(self, event: VoiceEvent):
+    async def handle_ready(self, event: VoiceEvent):
         logger.log("IN", f"VOICE READY {event}")
         ip, port, ssrc = event.get("ip"), event.get("port"), event.get("ssrc")
-        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.bind(("0.0.0.0", 2917))
-        self._sock.connect((ip, port))
-        self._sock.send(self._ip_discovery_packet(ssrc))
-        logger.bind(context="UDP").log("OUT", f"IP DISCOVERY TO {ip}:{port}")
-        resp = self._sock.recvfrom(1024)
-        logger.bind(context="UDP").log("IN", f"IP DISCOVERY RESPONSE {resp}")
+        self.ssrc = ssrc
+        self._prepare_socket(ip, port)
+        my_ip, my_port = udp.do_ip_discovery(self._sock, ssrc)
+        logger.log("OUT", "SELECT PROTOCOL")
+        await self.send(VoiceOpCode.SELECT_PROTOCOL,
+                        {"protocol": "udp",
+                         "data": {"address": my_ip,
+                                  "port": my_port,
+                                  "mode": "aead_xchacha20_poly1305_rtpsize"}})
+
+    async def handle_session_description(self, event: VoiceEvent):
+        logger.log("IN", "SESSION DESCRIPTION")
+        self._encryption_key = event.get("secret_key")
+        logger.log("OUT", "SPEAKING")
+        await self.send(VoiceOpCode.SPEAKING, {"ssrc": self.ssrc,
+                                               "speaking": 1 << 0,
+                                               "delay": 0})
 
     async def receive_loop(self):
         while True:
@@ -88,7 +102,9 @@ class VoiceClient:
                 case VoiceOpCode.HEARTBEAT_ACK:
                     logger.log("IN", "VOICE HEARTBEAT ACK")
                 case VoiceOpCode.READY:
-                    self.handle_ready(event)
+                    asyncio.create_task(self.handle_ready(event))
+                case VoiceOpCode.SESSION_DESCRIPTION:
+                    asyncio.create_task(self.handle_session_description(event))
                 case _:
                     logger.log("IN", f"VOICE UNKNOWN {event}")
 
