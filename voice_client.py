@@ -1,6 +1,8 @@
 import asyncio
 import json
 import random
+import socket
+import struct
 import websockets
 
 from voice_event import VoiceEvent, VoiceOpCode
@@ -15,6 +17,8 @@ class VoiceClient:
     token: str
     config: Config
     _last_seq: int
+    _ws: websockets.ClientConnection | None
+    _sock: socket.socket
 
     def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
         self.url = f"wss://{url}?v=8"
@@ -55,6 +59,22 @@ class VoiceClient:
         await self.identify()
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
 
+    def _ip_discovery_packet(self, ssrc: int) -> bytes:
+        fmt = "!HHI" + 66 * "x"
+        return struct.pack(fmt, 0x1, 70, ssrc)
+
+    def handle_ready(self, event: VoiceEvent):
+        print(f"<<< VOICE READY {event}")
+        ip, port, ssrc = event.get("ip"), event.get("port"), event.get("ssrc")
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._sock.bind(("0.0.0.0", 2917))
+        self._sock.connect((ip, port))
+        self._sock.send(self._ip_discovery_packet(ssrc))
+        print(f">>> IP DISCOVERY TO {ip}:{port}")
+        resp = self._sock.recvfrom(1024)
+        print(f"<<< IP DISCOVERY RESPONSE {resp}")
+        # TODO negotiate protocol
+
     async def receive_loop(self):
         while True:
             event = VoiceEvent(await self._ws.recv())
@@ -66,7 +86,7 @@ class VoiceClient:
                 case VoiceOpCode.HEARTBEAT_ACK:
                     print("<<< VOICE HEARTBEAT ACK")
                 case VoiceOpCode.READY:
-                    print(f"<<< READY {event}")
+                    self.handle_ready(event)
                 case _:
                     print(f"<<< VOICE UNKOWN {event}")
 
