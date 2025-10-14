@@ -6,6 +6,9 @@ import websockets
 from event import Event, OpCode
 from typing import Callable, Dict, Any
 from config import Config
+from logs import logger as base_logger
+
+logger = base_logger.bind(context="GatewayClient")
 
 
 class Client:
@@ -35,7 +38,7 @@ class Client:
         await self._ws.send(json.dumps(payload))
 
     async def send_heartbeat(self):
-        print(f">>> HEARTBEAT d = {self._last_seq}")
+        logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
         await self.send(OpCode.HEARTBEAT, self._last_seq)
 
     async def regular_heartbeats(self, heartbeat_interval):
@@ -49,15 +52,15 @@ class Client:
                 "properties": {"os": "linux",
                                "browser": "meu_chapeu",
                                "device": "meu_chapeu"}}
-        print(">>> IDENFITY")
+        logger.log("OUT", "IDENTIFY")
         await self.send(OpCode.IDENTIFY, data)
 
     async def handle_hello(self, event: Event):
-        print("<<< HELLO")
+        logger.log("IN", "HELLO")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         initial_wait = heartbeat_interval * random.random()
-        print(f"*** Heartbeat interval: {heartbeat_interval:.3f} s")
-        print(f"*** Will start regular heartbeats in {initial_wait:.3f} s")
+        logger.info(f"Heartbeat interval: {heartbeat_interval:.3f} s")
+        logger.info(f"Will start regular heartbeats in {initial_wait:.3f} s")
         await self.identify()
         await asyncio.sleep(initial_wait)
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
@@ -77,7 +80,7 @@ class Client:
             fut.set_result(event)
 
     async def handle_dispatch(self, event: Event):
-        print(f"<<< DISPATCH: {event}")
+        logger.log("IN", f"DISPATCH: {event}")
         match event.name:
             case "INTERACTION_CREATE":
                 command_name = event.get("data")["name"]
@@ -93,7 +96,7 @@ class Client:
         self._voice_state_updates[guild_id] = state_future
         self._voice_server_updates[guild_id] = server_future
 
-        print(">>> VOICE_STATE_UPDATE")
+        logger.log("OUT", "VOICE_STATE_UPDATE")
         await self.send(OpCode.VOICE_STATE_UPDATE, {"guild_id": guild_id,
                                                     "channel_id": channel_id,
                                                     "self_mute": False,
@@ -105,7 +108,7 @@ class Client:
         result = {"endpoint": voice_server_update.get("endpoint"),
                   "token": voice_server_update.get("token"),
                   "session_id": voice_state_update.get("session_id")}
-        print(f"*** JOIN VOICE READY {result}")
+        logger.info(f"*** JOIN VOICE READY {result}")
         return result
 
     async def receive_loop(self):
@@ -117,7 +120,7 @@ class Client:
                 case OpCode.HELLO:
                     asyncio.create_task(self.handle_hello(event))
                 case OpCode.HEARTBEAT_ACK:
-                    print("<<< HEARTBEAT ACK")
+                    logger.log("IN", "HEARTBEAT ACK")
                 case OpCode.HEARTBEAT:
                     await self.send_heartbeat()
                 case OpCode.DISPATCH:
@@ -128,7 +131,7 @@ class Client:
         try:
             await self.receive_loop()
         except asyncio.exceptions.CancelledError:
-            print("Closing...\n")
+            pass
         finally:
             await self._ws.close()
 

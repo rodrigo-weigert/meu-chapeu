@@ -8,6 +8,9 @@ import websockets
 from voice_event import VoiceEvent, VoiceOpCode
 from typing import Any
 from config import Config
+from logs import logger as base_logger
+
+logger = base_logger.bind(context="VoiceGatewayClient")
 
 
 class VoiceClient:
@@ -33,7 +36,7 @@ class VoiceClient:
         await self._ws.send(json.dumps(payload))
 
     async def send_heartbeat(self, nonce: int):
-        print(f">>> VOICE HEARTBEAT d = {self._last_seq}, nonce = {nonce}")
+        logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}, nonce = {nonce}")
         await self.send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,
                                                 "t": nonce})
 
@@ -50,11 +53,11 @@ class VoiceClient:
                 "user_id": self.config.application_id,
                 "session_id": self.session_id,
                 "max_dave_protocol_version": 0}
-        print(">>> VOICE IDENFITY")
+        logger.log("OUT", f"IDENTIFY guild_id = {self.guild_id}")
         await self.send(VoiceOpCode.IDENTIFY, data)
 
     async def handle_hello(self, event: VoiceEvent):
-        print(f"<<< VOICE HELLO {event}")
+        logger.log("IN", f"HELLO {event}")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         await self.identify()
         asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
@@ -64,16 +67,15 @@ class VoiceClient:
         return struct.pack(fmt, 0x1, 70, ssrc)
 
     def handle_ready(self, event: VoiceEvent):
-        print(f"<<< VOICE READY {event}")
+        logger.log("IN", f"VOICE READY {event}")
         ip, port, ssrc = event.get("ip"), event.get("port"), event.get("ssrc")
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._sock.bind(("0.0.0.0", 2917))
         self._sock.connect((ip, port))
         self._sock.send(self._ip_discovery_packet(ssrc))
-        print(f">>> IP DISCOVERY TO {ip}:{port}")
+        logger.bind(context="UDP").log("OUT", f"IP DISCOVERY TO {ip}:{port}")
         resp = self._sock.recvfrom(1024)
-        print(f"<<< IP DISCOVERY RESPONSE {resp}")
-        # TODO negotiate protocol
+        logger.bind(context="UDP").log("IN", f"IP DISCOVERY RESPONSE {resp}")
 
     async def receive_loop(self):
         while True:
@@ -84,17 +86,17 @@ class VoiceClient:
                 case VoiceOpCode.HELLO:
                     asyncio.create_task(self.handle_hello(event))
                 case VoiceOpCode.HEARTBEAT_ACK:
-                    print("<<< VOICE HEARTBEAT ACK")
+                    logger.log("IN", "VOICE HEARTBEAT ACK")
                 case VoiceOpCode.READY:
                     self.handle_ready(event)
                 case _:
-                    print(f"<<< VOICE UNKOWN {event}")
+                    logger.log("IN", f"VOICE UNKNOWN {event}")
 
     async def start(self):
         self._ws = await websockets.connect(self.url)
         try:
             await self.receive_loop()
         except asyncio.exceptions.CancelledError:
-            print("Closing voice...\n")
+            pass
         finally:
             await self._ws.close()

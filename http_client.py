@@ -7,6 +7,9 @@ from urllib.parse import urlencode
 from config import Config
 from event import Event
 from typing import Dict, Any
+from logs import logger as base_logger
+
+logger = base_logger.bind(context="HttpClient")
 
 
 class HttpClient:
@@ -36,9 +39,9 @@ class HttpClient:
         return f"{base_url}?/{urlencode(params)}"
 
     def create_slash_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        print(f"*** Creating command {json.dumps(params)}")
+        logger.log("OUT", f"Creating command {json.dumps(params)}")
         resp = self.post(f"/applications/{self._config.application_id}/commands", body=params).json()
-        print(f"*** Command created: {resp}")
+        logger.log("IN", "Command creation response: {resp}")
         return resp
 
     def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
@@ -49,6 +52,6 @@ class HttpClient:
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"
-        print(f">>>>> RESPONDING INTERACTION {id}")
+        logger.log("OUT", f"RESPONDING INTERACTION {id}")
         resp = self.post(respond_url, {"type": 4, "data": {"content": message}})
-        print(f"<<<<< STATUS {id}: {resp.status_code}")
+        logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
