@@ -21,12 +21,16 @@ int total_packets(FILE* file) {
     return (file_size(file) + bytes_per_frame - 1) / bytes_per_frame;
 }
 
+void free_buffer(void* p) {
+    free(p);
+}
+
 unsigned char** get_opus_packets(char* pcm_filename, int* packet_count, int** packet_lengths) {
     int error;
     opus_int16 *input_buf = (opus_int16*) malloc(INPUT_BUFFER_SIZE);
     OpusEncoder *enc = opus_encoder_create(SAMPLE_RATE, CHANNELS, OPUS_APPLICATION_AUDIO, &error);
     FILE* file = fopen(pcm_filename, "rb");
-    int fsize = file_size(file);
+    // int fsize = file_size(file);
     int curr_packet = 0;
 
     *packet_count = total_packets(file);
