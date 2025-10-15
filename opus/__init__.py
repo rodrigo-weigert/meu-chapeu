@@ -1,1 +1,1 @@
-from .encode import get_opus_packets
+from .encode import encode

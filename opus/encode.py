@@ -1,5 +1,8 @@
 import ctypes
 import os
+import subprocess
+import tempfile
+import uuid
 
 from typing import List
 
@@ -15,7 +18,7 @@ _lib.free_buffer.argtypes = [ctypes.c_void_p]
 _lib.free_buffer.restype = None
 
 
-def get_opus_packets(pcm_filename: str) -> List[bytes]:
+def _pcm_file_to_opus_packets(pcm_filename: str) -> List[bytes]:
     c_packet_count = ctypes.c_int()
     c_packet_lengths = ctypes.POINTER(ctypes.c_int)()
     out_ptr = _lib.get_opus_packets(bytes(pcm_filename, encoding="ascii"), ctypes.byref(c_packet_count), ctypes.byref(c_packet_lengths))
@@ -27,3 +30,27 @@ def get_opus_packets(pcm_filename: str) -> List[bytes]:
         _lib.free_buffer(out_ptr[i])
     _lib.free_buffer(out_ptr)
     return output
+
+
+def _media_file_to_pcm(media_filename: str) -> str:
+    pcm_filename = os.path.join(tempfile.gettempdir(), str(uuid.uuid4()))
+    ffmpeg_cmd = ["ffmpeg", "-hide_banner",
+                  "-i", media_filename,
+                  "-f", "s16le",
+                  "-ar", "48000",
+                  "-ac", "2",
+                  "-vn",
+                  "-loglevel", "error",
+                  pcm_filename]
+    proc = subprocess.Popen(ffmpeg_cmd, bufsize=0)
+    exit_code = proc.wait()
+    if exit_code != 0:
+        raise Exception(f"Failed to convert media file to PCM, FFmpeg exit code {exit_code}")
+    return pcm_filename
+
+
+def encode(media_filename: str) -> List[bytes]:
+    pcm_filename = _media_file_to_pcm(media_filename)
+    result = _pcm_file_to_opus_packets(pcm_filename)
+    os.remove(pcm_filename)
+    return result
