@@ -2,3 +2,4 @@ __pycache__
 meu-chapeu-env
 .env
 .flake8
+*.so
