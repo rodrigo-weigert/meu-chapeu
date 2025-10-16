@@ -6,7 +6,7 @@ const int SAMPLE_RATE = 48000;
 const int SAMPLES_PER_FRAME = 960;
 const int CHANNELS = 2;
 const int INPUT_BUFFER_SIZE = sizeof(opus_int16) * CHANNELS * SAMPLES_PER_FRAME + 10;
-const int OUTPUT_BUFFER_SIZE = INPUT_BUFFER_SIZE;
+const int OUTPUT_BUFFER_SIZE = 4000;
 
 int file_size(FILE* file) {
     int prev = ftell(file), file_size;
@@ -33,6 +33,13 @@ unsigned char** get_opus_packets(char* pcm_filename, int* packet_count, int** pa
     // int fsize = file_size(file);
     int curr_packet = 0;
 
+    if (error != OPUS_OK) {
+        fprintf(stderr, "Failed to initialize Opus encoder (error code = %d)", error);
+        free(input_buf);
+        fclose(file);
+        return NULL;
+    }
+
     *packet_count = total_packets(file);
     *packet_lengths = (int*) malloc(sizeof(int) * (*packet_count));
     unsigned char** output = (unsigned char**) malloc(sizeof(unsigned char*) * (*packet_count));
@@ -49,13 +56,13 @@ unsigned char** get_opus_packets(char* pcm_filename, int* packet_count, int** pa
        }
        output[curr_packet] = (unsigned char*) malloc(sizeof(unsigned char) * OUTPUT_BUFFER_SIZE);
        int opus_packet_size = opus_encode(enc, input_buf, SAMPLES_PER_FRAME, output[curr_packet], OUTPUT_BUFFER_SIZE);
-       if (error == OPUS_OK) {
+       if (opus_packet_size >= 0) {
            //printf("Read %d values, encoded to %d bytes\n", read, opus_packet_size);
            (*packet_lengths)[curr_packet] = opus_packet_size;
            curr_packet++;
        }
        else {
-           fprintf(stderr, "Error code %d in packet %d\n", error, curr_packet-1);
+           fprintf(stderr, "Error code %d in packet %d\n", opus_packet_size, curr_packet-1);
            free(input_buf);
            free(*packet_lengths);
            for (int i = 0; i < curr_packet; i++)
