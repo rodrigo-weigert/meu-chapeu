@@ -1,5 +1,6 @@
 import asyncio
 import json
+import opus
 import random
 import socket
 import udp
@@ -20,10 +21,12 @@ class VoiceClient:
     token: str
     config: Config
     ssrc: int
+    audio_seq: int
     _last_seq: int
     _ws: websockets.ClientConnection | None
     _sock: socket.socket
-    _encryption_key: List[int] | None
+    _encryption_key: List[int]
+    nonce: int
 
     def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
         self.url = f"wss://{url}?v=8"
@@ -32,7 +35,10 @@ class VoiceClient:
         self.guild_id = guild_id
         self.config = config
         self._last_seq = -1
+        self._encryption_key = []
         self.ssrc = 0
+        self.audio_seq = random.getrandbits(32)
+        self.nonce = random.getrandbits(32)
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -44,11 +50,11 @@ class VoiceClient:
                                                 "t": nonce})
 
     async def regular_heartbeats(self, heartbeat_interval: float):
-        nonce = random.randint(1000000000000, 1999999999999)
+        heartbeat_nonce = random.randint(1000000000000, 1999999999999)
         while True:
-            await self.send_heartbeat(nonce)
+            await self.send_heartbeat(heartbeat_nonce)
             await asyncio.sleep(heartbeat_interval)
-            nonce += 1
+            heartbeat_nonce += 1
 
     async def identify(self):
         data = {"token": self.token,
@@ -67,6 +73,7 @@ class VoiceClient:
 
     def _prepare_socket(self, ip: str, port: int) -> None:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 512)
         self._sock.bind(("0.0.0.0", 2917))  # TODO should use a port range to support multiple simultaneous voice connections
         self._sock.connect((ip, port))
 
@@ -83,13 +90,21 @@ class VoiceClient:
                                   "port": my_port,
                                   "mode": "aead_xchacha20_poly1305_rtpsize"}})
 
+    async def play_song(self, media_file_name: str) -> None:
+        packets = opus.encode(media_file_name)
+        await udp.stream_audio(self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce)
+        self.audio_seq += len(packets)
+        self.nonce += len(packets)
+
     async def handle_session_description(self, event: VoiceEvent):
-        logger.log("IN", "SESSION DESCRIPTION")
+        logger.log("IN", f"SESSION DESCRIPTION {event}")
         self._encryption_key = event.get("secret_key")
-        logger.log("OUT", "SPEAKING")
-        await self.send(VoiceOpCode.SPEAKING, {"ssrc": self.ssrc,
-                                               "speaking": 1 << 0,
-                                               "delay": 0})
+        logger.info(f"Encryption key: {self._encryption_key}")
+        speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
+        logger.log("OUT", f"SPEAKING {speaking_payload}")
+        await self.send(VoiceOpCode.SPEAKING, speaking_payload)
+        logger.log("OUT", "Playing song...")
+        await self.play_song("resources/video.mp4")
 
     async def receive_loop(self):
         while True:
