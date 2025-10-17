@@ -3,7 +3,6 @@ import crypto
 import struct
 import socket
 import random
-import time
 import statistics
 
 from typing import Tuple, List
@@ -12,6 +11,7 @@ from logs import logger as base_logger
 logger = base_logger.bind(context="UDP")
 
 _IP_DISCOVERY_PACKET_FORMAT = "!HHI64sH"
+_RTP_HEADER_FORMAT = "!ccHII"
 
 
 def _ip_discovery_packet(ssrc: int) -> bytes:
@@ -32,9 +32,6 @@ def do_ip_discovery(sock: socket.socket, ssrc: int) -> Tuple[str, int]:
     return parsed_resp
 
 
-_RTP_HEADER_FORMAT = "!ccHII"
-
-
 def _rtp_header(ssrc: int, seq: int, timestamp: int) -> bytes:
     return struct.pack(_RTP_HEADER_FORMAT, b'\x80', b'\x78', seq & ((1 << 16) - 1), timestamp & ((1 << 32) - 1), ssrc)
 
@@ -44,31 +41,19 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
     encrypted_payload = crypto.encrypt_packet(header, payload, nonce, encryption_key)
     return header + encrypted_payload + nonce.to_bytes(4, "little")
 
-# TODO investigate and fix stream skipping / hiccup issue
+
 async def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int) -> None:
-    ts = random.getrandbits(32)
+    ts = random.getrandbits(32)  # TODO: should be voice client state
     k = bytes(encryption_key)
+    loop = asyncio.get_event_loop()
 
     packets = [_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i) for (i, payload) in enumerate(audio_payloads)]
-    next_time = time.perf_counter()
-    last = next_time
-    diffs = []
-    logger.info(f"Max packet size: {max([len(packet) for packet in packets])}")
-    for packet in packets:
-        next_time += 0.02
-        now = time.perf_counter()
-        sleep_time = next_time - now
-        if sleep_time > 0:
-            await asyncio.sleep(sleep_time * 0.9)
-            while time.perf_counter() < next_time:
-                pass
-        else:
-            logger.warning("Accumulated drift, packets are late!")
-        sock.send(packet)
-        now = time.perf_counter()
-        diff = now - last
-        last = now
-        diffs.append(diff)
+    now = loop.time()
+    next_time = now
 
-    quantiles = statistics.quantiles(diffs, n=100)
-    logger.info(f"Audio stream end, avg packet interval {statistics.mean(diffs)}, max: {max(diffs)}, min: {min(diffs)}, p1: {quantiles[0]}, p99: {quantiles[98]}")
+    for packet in packets:
+        sock.send(packet)
+        next_time += 0.02
+        await asyncio.sleep(next_time - loop.time())
+
+    logger.info(f"Audio stream end, duration: {0.02 * len(packets)} seconds, total packets: {len(packets)}")
