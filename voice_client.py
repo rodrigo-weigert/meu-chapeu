@@ -73,7 +73,6 @@ class VoiceClient:
 
     def _prepare_socket(self, ip: str, port: int) -> None:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        #self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 512)
         self._sock.bind(("0.0.0.0", 2917))  # TODO should use a port range to support multiple simultaneous voice connections
         self._sock.connect((ip, port))
 
@@ -103,7 +102,7 @@ class VoiceClient:
         speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
         logger.log("OUT", f"SPEAKING {speaking_payload}")
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
-        logger.log("OUT", "Playing song...")
+        logger.info("Playing song...")
         await self.play_song("resources/video.mp4")
 
     async def receive_loop(self):

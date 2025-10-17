@@ -6,6 +6,8 @@ import uuid
 
 from typing import List
 
+SILENCE_FRAME = b'\xf8\xff\xfe'
+
 _root_path = os.path.dirname(os.path.abspath(__file__))
 _lib = ctypes.cdll.LoadLibrary(os.path.join(_root_path, "opus_encode.so"))
 
@@ -53,4 +55,5 @@ def encode(media_filename: str) -> List[bytes]:
     pcm_filename = _media_file_to_pcm(media_filename)
     result = _pcm_file_to_opus_packets(pcm_filename)
     os.remove(pcm_filename)
+    result.extend(5 * [SILENCE_FRAME])
     return result
