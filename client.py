@@ -130,7 +130,7 @@ class Client:
         self._ws = await websockets.connect(self.url)
         try:
             await self.receive_loop()
-        except asyncio.exceptions.CancelledError:
+        except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
             pass
         finally:
             await self._ws.close()
