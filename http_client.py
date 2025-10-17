@@ -46,12 +46,13 @@ class HttpClient:
 
     def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
         resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
-        return resp["channel_id"] if "channel_id" in resp else None
+        return resp.get("channel_id")
 
-    def respond_interaction_with_message(self, interaction_event: Event, message: str) -> requests.Response:
+    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False) -> requests.Response:
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"
         logger.log("OUT", f"RESPONDING INTERACTION {id}")
-        resp = self.post(respond_url, {"type": 4, "data": {"content": message}})
+        flags = (1 << 6) if ephemeral else 0
+        resp = self.post(respond_url, {"type": 4, "data": {"content": message, "flags": flags}})
         logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
