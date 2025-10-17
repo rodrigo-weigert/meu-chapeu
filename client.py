@@ -126,14 +126,11 @@ class Client:
                 case OpCode.DISPATCH:
                     asyncio.create_task(self.handle_dispatch(event))
 
-    async def _start(self):
+    async def start(self):
         self._ws = await websockets.connect(self.url)
         try:
             await self.receive_loop()
-        except (asyncio.exceptions.CancelledError, KeyboardInterrupt):
+        except asyncio.exceptions.CancelledError:
             pass
         finally:
             await self._ws.close()
-
-    def start(self):
-        asyncio.run(self._start())

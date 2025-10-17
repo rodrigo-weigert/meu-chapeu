@@ -130,3 +130,5 @@ class VoiceClient:
             pass
         finally:
             await self._ws.close()
+            if self._sock is not None:
+                self._sock.close()
