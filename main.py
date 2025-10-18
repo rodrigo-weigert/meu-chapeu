@@ -9,6 +9,7 @@ from intents import Intent
 from config import Config
 from http_client import HttpClient
 from voice_client import VoiceClient
+from concurrent.futures import ThreadPoolExecutor
 
 
 def main():
@@ -16,6 +17,7 @@ def main():
     http_client = HttpClient(config)
     # http_client.create_slash_command(commands.Play)
     client = Client(http_client.get_gateway_url(), Intent.GUILD_VOICE_STATES, config)
+    executor = ThreadPoolExecutor()
 
     async def handle_play(event):
         guild_id = event.get("guild_id")
@@ -28,7 +30,7 @@ def main():
             return
 
         http_client.respond_interaction_with_message(event, "OK. Downloading and joining channel...")
-        file_path = youtube.search_and_download_first(search_query)
+        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
 
         voice_session_data = await client.prepare_join_voice(guild_id, channel_id)
         voice_client = VoiceClient(guild_id, voice_session_data["endpoint"], voice_session_data["session_id"], voice_session_data["token"], file_path, config)
