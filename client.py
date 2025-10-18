@@ -108,7 +108,7 @@ class Client:
         result = {"endpoint": voice_server_update.get("endpoint"),
                   "token": voice_server_update.get("token"),
                   "session_id": voice_state_update.get("session_id")}
-        logger.info(f"*** JOIN VOICE READY {result}")
+        logger.info(f"JOIN VOICE READY {result}")
         return result
 
     async def receive_loop(self):

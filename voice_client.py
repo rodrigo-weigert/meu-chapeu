@@ -24,10 +24,11 @@ class VoiceClient:
     ssrc: int
     audio_seq: int
     _last_seq: int
-    _ws: websockets.ClientConnection | None
+    _ws: websockets.ClientConnection
     _sock: socket.socket
     _encryption_key: List[int]
     nonce: int
+    encryption_mode: str
 
     def __init__(self, guild_id: str, url: str, session_id: str, token: str, media_file_path: str, config: Config):
         self.url = f"wss://{url}?v=8"
@@ -80,20 +81,21 @@ class VoiceClient:
 
     async def handle_ready(self, event: VoiceEvent):
         logger.log("IN", f"VOICE READY {event}")
-        ip, port, ssrc = event.get("ip"), event.get("port"), event.get("ssrc")
+        ip, port, ssrc, modes = event.get("ip"), event.get("port"), event.get("ssrc"), event.get("modes")
+        self.encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
         self.ssrc = ssrc
         self._prepare_socket(ip, port)
         my_ip, my_port = udp.do_ip_discovery(self._sock, ssrc)
-        logger.log("OUT", "SELECT PROTOCOL")
+        logger.log("OUT", f"SELECT PROTOCOL encryption mode = {self.encryption_mode}")
         await self.send(VoiceOpCode.SELECT_PROTOCOL,
                         {"protocol": "udp",
                          "data": {"address": my_ip,
                                   "port": my_port,
-                                  "mode": "aead_xchacha20_poly1305_rtpsize"}})
+                                  "mode": self.encryption_mode}})
 
     async def play_song(self, media_file_name: str) -> None:
         packets = opus.encode(media_file_name)
-        await udp.stream_audio(self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce)
+        await udp.stream_audio(self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
         self.nonce += len(packets)
 
