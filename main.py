@@ -2,6 +2,7 @@
 
 import asyncio
 import commands
+import youtube
 
 from client import Client
 from intents import Intent
@@ -20,14 +21,17 @@ def main():
         guild_id = event.get("guild_id")
         user_id = event.get("member")["user"]["id"]
         channel_id = http_client.get_user_voice_channel(guild_id, user_id)
+        search_query = event.get("data")["options"][0]["value"]
 
         if channel_id is None:
             http_client.respond_interaction_with_message(event, "You are not in a valid channel I can join", ephemeral=True)
             return
 
-        http_client.respond_interaction_with_message(event, "OK. Joining channel...")
+        http_client.respond_interaction_with_message(event, "OK. Downloading and joining channel...")
+        file_path = youtube.search_and_download_first(search_query)
+
         voice_session_data = await client.prepare_join_voice(guild_id, channel_id)
-        voice_client = VoiceClient(guild_id, voice_session_data["endpoint"], voice_session_data["session_id"], voice_session_data["token"], config)
+        voice_client = VoiceClient(guild_id, voice_session_data["endpoint"], voice_session_data["session_id"], voice_session_data["token"], file_path, config)
         await voice_client.start()
 
     client.register_interaction_handler("play", handle_play)
