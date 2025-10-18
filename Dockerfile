@@ -11,4 +11,4 @@ WORKDIR /bot/opus
 RUN make
 
 WORKDIR /bot
-CMD ["python", "connect.py"]
+CMD ["python", "main.py"]

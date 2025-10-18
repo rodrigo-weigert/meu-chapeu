@@ -29,7 +29,7 @@ def main():
             http_client.respond_interaction_with_message(event, "You are not in a valid channel I can join", ephemeral=True)
             return
 
-        http_client.respond_interaction_with_message(event, "OK. Downloading and joining channel...")
+        http_client.respond_interaction_with_message(event, "OK. Downloading and joining channel... (may take a while depending on server hardware)", ephemeral=True)
         file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
 
         voice_session_data = await client.prepare_join_voice(guild_id, channel_id)

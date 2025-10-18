@@ -47,13 +47,14 @@ async def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: i
     k = bytes(encryption_key)
     loop = asyncio.get_event_loop()
 
-    packets = [_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i) for (i, payload) in enumerate(audio_payloads)]
+    packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i) for (i, payload) in enumerate(audio_payloads))
+
     now = loop.time()
-    next_time = now
+    next_time = now + 0.02
 
     for packet in packets:
+        await asyncio.sleep(next_time - loop.time())
         sock.send(packet)
         next_time += 0.02
-        await asyncio.sleep(next_time - loop.time())
 
-    logger.info(f"Audio stream end, duration: {0.02 * len(packets)} seconds, total packets: {len(packets)}")
+    logger.info(f"Audio stream end, duration: {0.02 * len(audio_payloads)} seconds, total packets: {len(audio_payloads)}")
