@@ -19,6 +19,7 @@ class VoiceClient:
     url: str
     session_id: str
     token: str
+    media_file_path: str
     config: Config
     ssrc: int
     audio_seq: int
@@ -28,11 +29,12 @@ class VoiceClient:
     _encryption_key: List[int]
     nonce: int
 
-    def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
+    def __init__(self, guild_id: str, url: str, session_id: str, token: str, media_file_path: str, config: Config):
         self.url = f"wss://{url}?v=8"
         self.session_id = session_id
         self.token = token
         self.guild_id = guild_id
+        self.media_file_path = media_file_path
         self.config = config
         self._last_seq = -1
         self._encryption_key = []
@@ -102,8 +104,8 @@ class VoiceClient:
         speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
         logger.log("OUT", f"SPEAKING {speaking_payload}")
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
-        logger.info("Playing song...")
-        await self.play_song("resources/video.mp4")
+        logger.info(f"Playing song from {self.media_file_path}")
+        await self.play_song(self.media_file_path)
 
     async def receive_loop(self):
         while True:

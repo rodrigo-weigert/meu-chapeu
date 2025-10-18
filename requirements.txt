@@ -7,5 +7,7 @@ pycparser==2.23
 PyNaCl==1.6.0
 python-dotenv==1.1.1
 requests==2.32.5
+types-requests==2.32.4.20250913
 urllib3==2.5.0
 websockets==15.0.1
+youtube_dl @ https://github.com/ytdl-org/ytdl-nightly/releases/download/2025.09.29/youtube-dl-2025.09.29.tar.gz#sha256=75498def50e95aa1f8675613a545b9362e373ef9f05b8ca752ca81196825f648
