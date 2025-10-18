@@ -5,6 +5,9 @@ import tempfile
 import uuid
 
 from typing import List
+from logs import logger as base_logger
+
+logger = base_logger.bind(context="OpusEncoder")
 
 SILENCE_FRAME = b'\xf8\xff\xfe'
 
@@ -52,8 +55,11 @@ def _media_file_to_pcm(media_filename: str) -> str:
 
 
 def encode(media_filename: str) -> List[bytes]:
+    logger.info(f"Starting FFmpeg conversion of media file {media_filename} to PCM...")
     pcm_filename = _media_file_to_pcm(media_filename)
+    logger.info(f"PCM conversion of {media_filename} finished. Encoding using Opus Codec...")
     result = _pcm_file_to_opus_packets(pcm_filename)
+    logger.info(f"Opus encoding of {media_filename} finished")
     os.remove(pcm_filename)
     result.extend(5 * [SILENCE_FRAME])
     return result
