@@ -10,6 +10,9 @@ class OpCode(Enum):
     HEARTBEAT = 1
     IDENTIFY = 2
     VOICE_STATE_UPDATE = 4
+    RESUME = 6
+    RECONNECT = 7
+    INVALID_SESSION = 9
     HELLO = 10
     HEARTBEAT_ACK = 11
 
