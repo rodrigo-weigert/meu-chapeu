@@ -29,12 +29,11 @@ def main():
             http_client.respond_interaction_with_message(event, "You are not in a valid channel I can join", ephemeral=True)
             return
 
-        http_client.respond_interaction_with_message(event, "OK. Downloading and joining channel... (may take a while depending on server hardware)", ephemeral=True)
-        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
+        voice_client = await client.join_voice_channel(guild_id, channel_id)
+        http_client.respond_interaction_with_message(event, "OK. Joining channel and preparing audio... (may take a while)", ephemeral=True)
 
-        voice_session_data = await client.prepare_join_voice(guild_id, channel_id)
-        voice_client = VoiceClient(guild_id, voice_session_data["endpoint"], voice_session_data["session_id"], voice_session_data["token"], file_path, config)
-        await voice_client.start()
+        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
+        await voice_client.play_song(file_path)
 
     client.register_interaction_handler("play", handle_play)
     try:
