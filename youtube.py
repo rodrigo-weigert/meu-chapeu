@@ -42,10 +42,15 @@ YDL_OPTS = {'format': 'bestaudio/best', 'logger': YoutubeDLLogger(), 'outtmpl': 
 
 
 def download(video_id: str) -> str | None:
+    file_path = os.path.join(SAVE_DIR, video_id)
+
+    if os.path.isfile(file_path):
+        return file_path
+
     with youtube_dl.YoutubeDL(YDL_OPTS) as ydl:
         result = ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
         if result == 0:
-            return os.path.join(SAVE_DIR, video_id)
+            return file_path
         return None
 
 
@@ -56,11 +61,11 @@ def search_and_download_first(query: str) -> str | None:
         logger.warning(f"Video search for query '{query}' failed")
         return None
 
-    logger.info(f"Downloading video ID {video_id}")
+    logger.info(f"Fetching video ID {video_id}")
 
     file_path = download(video_id)
     if file_path is None:
         logger.warning(f"Video ID {video_id} download for query '{query}' failed")
         return None
-    logger.info(f"Successfully downloaded video ID {video_id} for query '{query}', saved at {file_path}")
+    logger.info(f"Video ID {video_id} for query '{query}' is saved at {file_path}")
     return file_path
