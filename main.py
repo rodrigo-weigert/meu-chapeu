@@ -8,8 +8,10 @@ from client import Client
 from intents import Intent
 from config import Config
 from http_client import HttpClient
-from voice_client import VoiceClient
 from concurrent.futures import ThreadPoolExecutor
+
+voice_client = None
+song_task = None
 
 
 def main():
@@ -20,6 +22,9 @@ def main():
     executor = ThreadPoolExecutor()
 
     async def handle_play(event):
+        global voice_client
+        global song_task
+
         guild_id = event.get("guild_id")
         user_id = event.get("member")["user"]["id"]
         channel_id = http_client.get_user_voice_channel(guild_id, user_id)
@@ -29,11 +34,14 @@ def main():
             http_client.respond_interaction_with_message(event, "You are not in a valid channel I can join", ephemeral=True)
             return
 
-        voice_client = await client.join_voice_channel(guild_id, channel_id)
-        http_client.respond_interaction_with_message(event, "OK. Joining channel and preparing audio... (may take a while)", ephemeral=True)
-
-        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
-        await voice_client.play_song(file_path)
+        if voice_client is None or song_task is None or song_task.done():
+            http_client.respond_interaction_with_message(event, "OK. Joining channel and preparing audio... (may take a while)", ephemeral=True)
+            if voice_client is None:
+                voice_client = await client.join_voice_channel(guild_id, channel_id)
+            file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
+            song_task = asyncio.create_task(voice_client.play_song(file_path))
+        else:
+            http_client.respond_interaction_with_message(event, "Ignoring because a song is already being played!", ephemeral=True)
 
     client.register_interaction_handler("play", handle_play)
     try:
