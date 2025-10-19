@@ -21,6 +21,8 @@ class Client:
     _interaction_handlers: Dict[str, Callable[[Event], Any]]
     _voice_state_updates: Dict[str, asyncio.Future[Event]]
     _voice_server_updates: Dict[str, asyncio.Future[Event]]
+    _session_id: str
+    _resume_url: str
 
     def __init__(self, url: str, intents: int, config: Config):
         self.url = url
@@ -83,6 +85,9 @@ class Client:
     async def handle_dispatch(self, event: Event):
         logger.log("IN", f"DISPATCH: {event}")
         match event.name:
+            case "READY":
+                self._session_id = event.get("session_id")
+                self._resume_url = event.get("resume_gateway_url")
             case "INTERACTION_CREATE":
                 command_name = event.get("data")["name"]
                 await self._interaction_handlers[command_name](event)
@@ -90,6 +95,8 @@ class Client:
                 self.handle_voice_state_update(event)
             case "VOICE_SERVER_UPDATE":
                 self.handle_voice_server_update(event)
+            case "RESUMED":
+                logger.info("Connection resumed successfully")
 
     async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient:
         state_future = asyncio.get_running_loop().create_future()
@@ -119,6 +126,14 @@ class Client:
         asyncio.create_task(vc.start())
         return vc
 
+    async def handle_reconnect(self, event: Event):
+        logger.log("IN", "RECONNECT")
+        self._ws = await websockets.connect(self._resume_url)
+        logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
+        await self.send(OpCode.RESUME, {"token": self.config.api_token,
+                                        "session_id": self._session_id,
+                                        "seq": self._last_seq})
+
     async def receive_loop(self):
         while True:
             event = Event(await self._ws.recv())
@@ -133,8 +148,15 @@ class Client:
                     await self.send_heartbeat()
                 case OpCode.DISPATCH:
                     asyncio.create_task(self.handle_dispatch(event))
+                case OpCode.RECONNECT:
+                    await self.handle_reconnect(event)
+                case OpCode.INVALID_SESSION:
+                    logger.log("IN", "INVALID SESSION")
+                    logger.info("Received invalid session, exiting")
+                    break
 
     async def start(self):
+        logger.info("Bot starting")
         self._ws = await websockets.connect(self.url)
         try:
             await self.receive_loop()

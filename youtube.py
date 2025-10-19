@@ -30,7 +30,7 @@ def search(query: str) -> str | None:
               "regionCode": "BR",
               "relevanceLanguage": "pt"}
     headers = {"Accept": "application/json"}
-    res = requests.get(API_SEARCH_URL, headers=headers, params=params, timeout=1)
+    res = requests.get(API_SEARCH_URL, headers=headers, params=params)
     if res.status_code == 200:
         return res.json()["items"][0]["id"]["videoId"]
     else:
