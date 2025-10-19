@@ -29,19 +29,20 @@ class VoiceClient:
     _encryption_key: List[int]
     nonce: int
     encryption_mode: str
+    ready: asyncio.Event
 
-    def __init__(self, guild_id: str, url: str, session_id: str, token: str, media_file_path: str, config: Config):
+    def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
         self.url = f"wss://{url}?v=8"
         self.session_id = session_id
         self.token = token
         self.guild_id = guild_id
-        self.media_file_path = media_file_path
         self.config = config
         self._last_seq = -1
         self._encryption_key = []
         self.ssrc = 0
         self.audio_seq = random.getrandbits(32)
         self.nonce = random.getrandbits(32)
+        self.ready = asyncio.Event()
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -94,6 +95,7 @@ class VoiceClient:
                                   "mode": self.encryption_mode}})
 
     async def play_song(self, media_file_name: str) -> None:
+        await self.ready.wait()
         packets = opus.encode(media_file_name)
         await udp.stream_audio(self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
@@ -106,8 +108,7 @@ class VoiceClient:
         speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
         logger.log("OUT", f"SPEAKING {speaking_payload}")
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
-        logger.info(f"Playing song from {self.media_file_path}")
-        await self.play_song(self.media_file_path)
+        self.ready.set()
 
     async def receive_loop(self):
         while True:
