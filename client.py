@@ -116,6 +116,7 @@ class Client:
         server_resp = await server_future
 
         vc = VoiceClient(guild_id,
+                         channel_id,
                          server_resp.get("endpoint"),
                          state_resp.get("session_id"),
                          server_resp.get("token"),

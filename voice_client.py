@@ -16,10 +16,10 @@ logger = base_logger.bind(context="VoiceGatewayClient")
 
 class VoiceClient:
     guild_id: str
+    channel_id: str
     url: str
     session_id: str
     token: str
-    media_file_path: str
     config: Config
     ssrc: int
     audio_seq: int
@@ -31,11 +31,12 @@ class VoiceClient:
     encryption_mode: str
     ready: asyncio.Event
 
-    def __init__(self, guild_id: str, url: str, session_id: str, token: str, config: Config):
+    def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, config: Config):
         self.url = f"wss://{url}?v=8"
         self.session_id = session_id
         self.token = token
         self.guild_id = guild_id
+        self.channel_id = channel_id
         self.config = config
         self._last_seq = -1
         self._encryption_key = []
