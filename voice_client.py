@@ -10,6 +10,7 @@ from voice_event import VoiceEvent, VoiceOpCode
 from typing import Any, List
 from config import Config
 from logs import logger as base_logger
+from concurrent.futures import ThreadPoolExecutor, Executor
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -27,6 +28,7 @@ class VoiceClient:
     _ws: websockets.ClientConnection
     _sock: socket.socket
     _encryption_key: List[int]
+    _executor: Executor
     nonce: int
     encryption_mode: str
     ready: asyncio.Event
@@ -44,6 +46,7 @@ class VoiceClient:
         self.audio_seq = random.getrandbits(32)
         self.nonce = random.getrandbits(32)
         self.ready = asyncio.Event()
+        self._executor = ThreadPoolExecutor()
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -98,7 +101,7 @@ class VoiceClient:
     async def play_song(self, media_file_name: str) -> None:
         await self.ready.wait()
         packets = opus.encode(media_file_name)
-        await udp.stream_audio(self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
+        await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
         self.nonce += len(packets)
 
