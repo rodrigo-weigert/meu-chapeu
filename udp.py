@@ -43,6 +43,8 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
 
 
 async def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str) -> None:
+    logger.info("Starting audio stream")
+
     ts = random.getrandbits(32)  # TODO: should be voice client state
     k = bytes(encryption_key)
     loop = asyncio.get_event_loop()

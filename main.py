@@ -25,23 +25,31 @@ def main():
         global voice_client
         global song_task
 
+        if song_task is not None and not song_task.done():
+            http_client.respond_interaction_with_message(event, "Ignoring because a song is already being played!", ephemeral=True)
+            return
+
         guild_id = event.get("guild_id")
         user_id = event.get("member")["user"]["id"]
         channel_id = http_client.get_user_voice_channel(guild_id, user_id)
         search_query = event.get("data")["options"][0]["value"]
 
         if channel_id is None:
-            http_client.respond_interaction_with_message(event, "You are not in a valid channel I can join", ephemeral=True)
+            http_client.respond_interaction_with_message(event, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
             return
 
-        if voice_client is None or song_task is None or song_task.done():
+        if voice_client is not None and voice_client.channel_id != channel_id:
+            http_client.respond_interaction_with_message(event, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
+            return
+
+        if voice_client is None:
             http_client.respond_interaction_with_message(event, "OK. Joining channel and preparing audio... (may take a while)", ephemeral=True)
-            if voice_client is None:
-                voice_client = await client.join_voice_channel(guild_id, channel_id)
-            file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.search_and_download_first, search_query)
-            song_task = asyncio.create_task(voice_client.play_song(file_path))
+            voice_client = await client.join_voice_channel(guild_id, channel_id)
         else:
-            http_client.respond_interaction_with_message(event, "Ignoring because a song is already being played!", ephemeral=True)
+            http_client.respond_interaction_with_message(event, "OK. Preparing audio... (may take a while)")
+
+        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.get_video, search_query)
+        song_task = asyncio.create_task(voice_client.play_song(file_path))
 
     client.register_interaction_handler("play", handle_play)
     try:
