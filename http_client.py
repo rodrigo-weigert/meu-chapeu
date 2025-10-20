@@ -48,7 +48,7 @@ class HttpClient:
         resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
         return resp.get("channel_id")
 
-    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False) -> requests.Response:
+    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False):
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"

@@ -24,6 +24,7 @@ class VoiceClient:
     config: Config
     ssrc: int
     audio_seq: int
+    _closed: bool
     _last_seq: int
     _ws: websockets.ClientConnection
     _sock: socket.socket
@@ -47,20 +48,24 @@ class VoiceClient:
         self.nonce = random.getrandbits(32)
         self.ready = asyncio.Event()
         self._executor = ThreadPoolExecutor()
+        self._closed = False
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
 
     async def send_heartbeat(self, nonce: int):
-        logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}, nonce = {nonce}")
         await self.send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,
                                                 "t": nonce})
+        logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}, nonce = {nonce}")
 
     async def regular_heartbeats(self, heartbeat_interval: float):
         heartbeat_nonce = random.randint(1000000000000, 1999999999999)
         while True:
-            await self.send_heartbeat(heartbeat_nonce)
+            try:
+                await self.send_heartbeat(heartbeat_nonce)
+            except websockets.exceptions.ConnectionClosed:
+                return
             await asyncio.sleep(heartbeat_interval)
             heartbeat_nonce += 1
 
@@ -116,7 +121,18 @@ class VoiceClient:
 
     async def receive_loop(self):
         while True:
-            event = VoiceEvent(await self._ws.recv())
+            try:
+                event = VoiceEvent(await self._ws.recv())
+            except websockets.exceptions.ConnectionClosedOK as e:
+                logger.info(f"Connection normal closure (code {e.code}), stopping client")
+                return
+            except websockets.exceptions.ConnectionClosedError as e:
+                if e.code == 4014:
+                    logger.info("Connection closed due to disconnect (kicked from channel?), stopping client")
+                else:
+                    logger.warning(f"Connection closed with error (code {e.code}), stopping client")
+                return
+
             if event.seq_num:
                 self._last_seq = event.seq_num
             match event.opcode:
@@ -141,3 +157,8 @@ class VoiceClient:
             await self._ws.close()
             if self._sock is not None:
                 self._sock.close()
+            self._closed = True
+
+    @property
+    def closed(self):
+        return self._closed

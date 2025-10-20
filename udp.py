@@ -53,9 +53,15 @@ def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, in
     now = time.perf_counter()
     next_time = now + 0.02
 
-    for packet in packets:
-        time.sleep(next_time - time.perf_counter())
-        sock.send(packet)
-        next_time += 0.02
-
+    try:
+        for packet in packets:
+            time.sleep(next_time - time.perf_counter())
+            sock.send(packet)
+            next_time += 0.02
+    except OSError as e:
+        if e.errno == 9:
+            logger.info("Socket was closed. Stopping stream.")
+        else:
+            logger.warning(f"Socket was closed unexpectedly (error code = {e.errno}. Stopping stream.")
+        return
     logger.info(f"Audio stream end, duration: {0.02 * len(audio_payloads)} seconds, total packets: {len(audio_payloads)}")
