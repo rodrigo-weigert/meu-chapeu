@@ -1,9 +1,9 @@
 import asyncio
 import crypto
+import random
 import struct
 import socket
-import random
-import statistics
+import time
 
 from typing import Tuple, List
 from logs import logger as base_logger
@@ -42,20 +42,19 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
     return header + encrypted_payload + nonce.to_bytes(4, "little")
 
 
-async def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str) -> None:
+def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str) -> None:
     logger.info("Starting audio stream")
 
     ts = random.getrandbits(32)  # TODO: should be voice client state
     k = bytes(encryption_key)
-    loop = asyncio.get_event_loop()
 
     packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode) for (i, payload) in enumerate(audio_payloads))
 
-    now = loop.time()
+    now = time.perf_counter()
     next_time = now + 0.02
 
     for packet in packets:
-        await asyncio.sleep(next_time - loop.time())
+        time.sleep(next_time - time.perf_counter())
         sock.send(packet)
         next_time += 0.02
 
