@@ -18,6 +18,7 @@ class Config:
         self._api_url = os.getenv("API_URL")
         self._application_id = os.getenv("APPLICATION_ID")
         self._idle_timeout = int(os.getenv("IDLE_TIMEOUT", default=300))
+        self._google_api_token = os.getenv("GOOGLE_API_TOKEN")
 
     @property
     def api_token(self):
@@ -42,3 +43,7 @@ class Config:
     @property
     def idle_timeout(self):
         return self._idle_timeout
+
+    @property
+    def google_api_token(self):
+        return self._google_api_token

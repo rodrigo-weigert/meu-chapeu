@@ -3,10 +3,11 @@ import requests
 import tempfile
 import urllib.parse
 import youtube_dl
+
 from logs import logger as base_logger
+from config import Config
 
 API_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
-TOKEN = "REDACTED"  # TODO put in config/dotenv
 
 logger = base_logger.bind(context="YoutubeDL")
 SAVE_DIR = os.path.join(tempfile.gettempdir(), 'meu-chapeu')
@@ -23,10 +24,10 @@ class YoutubeDLLogger:
         logger.error(msg)
 
 
-def video_id_from_search(query: str) -> str | None:
+def video_id_from_search(query: str, config: Config) -> str | None:
     params = {"part": "snippet",
               "type": "video",
-              "key": TOKEN,
+              "key": config.google_api_token,
               "q": query,
               "regionCode": "BR",
               "relevanceLanguage": "pt"}
@@ -75,16 +76,16 @@ def video_id_from_url(user_query: str) -> str | None:
     return video_id if len(video_id) == 11 else None
 
 
-def get_video_id(user_query: str) -> str | None:
+def get_video_id(user_query: str, config: Config) -> str | None:
     video_id = video_id_from_url(user_query)
     if video_id is not None:
         logger.info(f"Extracted video ID {video_id} from user query '{user_query}'")
         return video_id
-    return video_id_from_search(user_query)
+    return video_id_from_search(user_query, config)
 
 
-def get_video(user_query: str) -> str | None:
-    video_id = get_video_id(user_query)
+def get_video(user_query: str, config: Config) -> str | None:
+    video_id = get_video_id(user_query, config)
     if video_id is None:
         logger.warning(f"Failed to find video for query '{user_query}'")
         return None
