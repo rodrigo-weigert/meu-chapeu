@@ -155,6 +155,8 @@ class VoiceClient:
                     logger.log("IN", f"VOICE UNKNOWN {event}")
 
     async def close(self) -> None:
+        if self._closed:
+            return
         self._receive_loop.cancel(msg="Close method was called")
         await self._ws.close()
         self._sock.close()
@@ -162,12 +164,13 @@ class VoiceClient:
         self._closed = True
 
     async def disconnect_after_delay(self) -> None:
+        logger.info("Idle timer started")
         try:
             await asyncio.sleep(self.config.idle_timeout)
             logger.info(f"Bot was idle for {self.config.idle_timeout} seconds, disconnecting")
             await self.close()
         except asyncio.CancelledError:
-            pass
+            logger.info("Idle timer cancelled")
 
     async def start(self):
         self._ws = await websockets.connect(self.url)
