@@ -7,7 +7,7 @@ import udp
 import websockets
 
 from voice_event import VoiceEvent, VoiceOpCode
-from typing import Any, List
+from typing import Any, List, Callable, Awaitable
 from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
@@ -33,8 +33,11 @@ class VoiceClient:
     nonce: int
     encryption_mode: str
     ready: asyncio.Event
+    _idle_timer: asyncio.Task
+    _receive_loop: asyncio.Task
+    _on_close: Callable[[], Awaitable[Any]]
 
-    def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, config: Config):
+    def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
         self.session_id = session_id
         self.token = token
@@ -49,6 +52,8 @@ class VoiceClient:
         self.ready = asyncio.Event()
         self._executor = ThreadPoolExecutor()
         self._closed = False
+        self._on_close = on_close
+        self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -104,11 +109,13 @@ class VoiceClient:
                                   "mode": self.encryption_mode}})
 
     async def play_song(self, media_file_name: str) -> None:
+        self._idle_timer.cancel()
         await self.ready.wait()
         packets = opus.encode(media_file_name)
         await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
         self.nonce += len(packets)
+        self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
 
     async def handle_session_description(self, event: VoiceEvent):
         logger.log("IN", f"SESSION DESCRIPTION {event}")
@@ -147,17 +154,30 @@ class VoiceClient:
                 case _:
                     logger.log("IN", f"VOICE UNKNOWN {event}")
 
+    async def close(self) -> None:
+        self._receive_loop.cancel(msg="Close method was called")
+        await self._ws.close()
+        self._sock.close()
+        await self._on_close()
+        self._closed = True
+
+    async def disconnect_after_delay(self) -> None:
+        try:
+            await asyncio.sleep(self.config.idle_timeout)
+            logger.info(f"Bot was idle for {self.config.idle_timeout} seconds, disconnecting")
+            await self.close()
+        except asyncio.CancelledError:
+            pass
+
     async def start(self):
         self._ws = await websockets.connect(self.url)
         try:
-            await self.receive_loop()
+            self._receive_loop = asyncio.create_task(self.receive_loop())
+            await self._receive_loop
         except asyncio.exceptions.CancelledError:
-            pass
+            logger.info("Receive loop task cancelled")
         finally:
-            await self._ws.close()
-            if self._sock is not None:
-                self._sock.close()
-            self._closed = True
+            await self.close()
 
     @property
     def closed(self):
