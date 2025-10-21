@@ -120,12 +120,25 @@ class Client:
                          server_resp.get("endpoint"),
                          state_resp.get("session_id"),
                          server_resp.get("token"),
+                         lambda: self.leave_voice_channel(guild_id),
                          self.config)
 
         logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
 
         asyncio.create_task(vc.start())
         return vc
+
+    async def leave_voice_channel(self, guild_id: str) -> None:
+        vsu_payload = {"guild_id": guild_id,
+                       "channel_id": None,
+                       "self_mute": False,
+                       "self_deaf": True}
+        try:
+            await self.send(OpCode.VOICE_STATE_UPDATE, vsu_payload)
+        except websockets.exceptions.ConnectionClosed:
+            return
+
+        logger.log("OUT", f"VOICE_STATE_UPDATE: {vsu_payload}")
 
     async def handle_reconnect(self, event: Event):
         logger.log("IN", "RECONNECT")
@@ -162,6 +175,6 @@ class Client:
         try:
             await self.receive_loop()
         except asyncio.exceptions.CancelledError:
-            pass
+            logger.info("Receive loop task cancelled")
         finally:
             await self._ws.close()

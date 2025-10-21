@@ -44,8 +44,9 @@ def main():
         elif voice_client.channel_id != channel_id:
             http_client.respond_interaction_with_message(event, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
             return
+        else:
+            http_client.respond_interaction_with_message(event, "OK. Preparing audio... (may take a while)", ephemeral=True)
 
-        http_client.respond_interaction_with_message(event, "OK. Preparing audio... (may take a while)", ephemeral=True)
         file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.get_video, search_query)
         song_task = asyncio.create_task(voice_client.play_song(file_path))
 
