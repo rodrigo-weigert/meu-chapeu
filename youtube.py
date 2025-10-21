@@ -2,7 +2,7 @@ import os
 import requests
 import tempfile
 import urllib.parse
-import youtube_dl
+import yt_dlp
 
 from logs import logger as base_logger
 from config import Config
@@ -15,7 +15,7 @@ SAVE_DIR = os.path.join(tempfile.gettempdir(), 'meu-chapeu')
 
 class YoutubeDLLogger:
     def debug(self, msg):
-        pass
+        logger.info(msg)
 
     def warning(self, msg):
         logger.warning(msg)
@@ -43,7 +43,9 @@ def video_id_from_search(query: str, config: Config) -> str | None:
         return None
 
 
-YDL_OPTS = {'format': 'bestaudio/best', 'logger': YoutubeDLLogger(), 'outtmpl': os.path.join(SAVE_DIR, "%(id)s")}
+YDL_OPTS = {'format': 'bestaudio',
+            'logger': YoutubeDLLogger(),
+            'outtmpl': os.path.join(SAVE_DIR, "%(id)s")}
 
 
 def maybe_download(video_id: str) -> str | None:
@@ -52,11 +54,12 @@ def maybe_download(video_id: str) -> str | None:
     if os.path.isfile(file_path):
         return file_path
 
-    with youtube_dl.YoutubeDL(YDL_OPTS) as ydl:
-        result = ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
-        if result == 0:
-            return file_path
-        return None
+    with yt_dlp.YoutubeDL(params=YDL_OPTS) as ydl:  # TODO avoid creating a new instace of YouTube every time to see if it speeds up downloads?
+        try:
+            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+        except yt_dlp.utils.DownloadError:
+            return None
+    return file_path
 
 
 def video_id_from_url(user_query: str) -> str | None:

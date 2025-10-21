@@ -48,7 +48,8 @@ def main():
             http_client.respond_interaction_with_message(event, "OK. Preparing audio... (may take a while)", ephemeral=True)
 
         file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.get_video, search_query, config)
-        song_task = asyncio.create_task(voice_client.play_song(file_path))
+        if file_path is not None:
+            song_task = asyncio.create_task(voice_client.play_song(file_path))
 
     client.register_interaction_handler("play", handle_play)
     try:
