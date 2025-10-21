@@ -64,14 +64,10 @@ def video_id_from_url(user_query: str) -> str | None:
     parsed_qs = urllib.parse.parse_qs(parsed_url.query)
     video_id = ""
 
-    match parsed_url.netloc.lower():
-        case "youtube.com" | "www.youtube.com":
-            if "v" in parsed_qs:
-                video_id = parsed_qs["v"][0]
-        case "youtu.be":
-            video_id = parsed_url.path[1:]
-        case _:
-            pass
+    if "v" in parsed_qs:
+        video_id = parsed_qs["v"][0]
+    elif parsed_url.netloc.lower() == "youtu.be":
+        video_id = parsed_url.path[1:]
 
     return video_id if len(video_id) == 11 else None
 
