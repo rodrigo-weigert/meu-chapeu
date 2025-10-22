@@ -24,10 +24,15 @@ class YoutubeDLLogger:
         logger.error(msg)
 
 
-YDL_OPTS = {'format': 'bestaudio',
+YDL_OPTS = {'format': 'bestaudio/bestaudio*[height<720]',
             'logger': YoutubeDLLogger(),
             'outtmpl': os.path.join(SAVE_DIR, "%(id)s"),
-            'allowed_extractors': ["youtube"]}
+            'allowed_extractors': ["youtube"],
+            # 'cookiefile': 'cookies.firefox-private.txt',
+            'extractor_args': {'youtube': {'player_js_version': ['actual']   # https://github.com/yt-dlp/yt-dlp/issues/14680#issuecomment-3425394571
+                                           # 'player_client': ['tv_embedded']
+                                           }},
+            'verbose': True}
 
 ydl = yt_dlp.YoutubeDL(params=YDL_OPTS)  # type: ignore[arg-type]
 
