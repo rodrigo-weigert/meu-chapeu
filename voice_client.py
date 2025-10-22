@@ -161,6 +161,7 @@ class VoiceClient:
         await self._ws.close()
         self._sock.close()
         await self._on_close()
+        self._idle_timer.cancel()
         self._closed = True
 
     async def disconnect_after_delay(self) -> None:
