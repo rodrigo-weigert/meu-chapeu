@@ -55,7 +55,9 @@ def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, in
 
     try:
         for packet in packets:
-            time.sleep(next_time - time.perf_counter())
+            sleep_amount = next_time - time.perf_counter()
+            if sleep_amount > 0:
+                time.sleep(sleep_amount)
             sock.send(packet)
             next_time += 0.02
     except OSError as e:
