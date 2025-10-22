@@ -24,6 +24,14 @@ class YoutubeDLLogger:
         logger.error(msg)
 
 
+YDL_OPTS = {'format': 'bestaudio',
+            'logger': YoutubeDLLogger(),
+            'outtmpl': os.path.join(SAVE_DIR, "%(id)s"),
+            'allowed_extractors': ["youtube"]}
+
+ydl = yt_dlp.YoutubeDL(params=YDL_OPTS)  # type: ignore[arg-type]
+
+
 def video_id_from_search(query: str, config: Config) -> str | None:
     params = {"part": "snippet",
               "type": "video",
@@ -32,7 +40,7 @@ def video_id_from_search(query: str, config: Config) -> str | None:
               "regionCode": "BR",
               "relevanceLanguage": "pt"}
     headers = {"Accept": "application/json"}
-    logger.info(f"Searching YouTube for query {query}")
+    logger.info(f"Searching YouTube for query '{query}'")
     res = requests.get(API_SEARCH_URL, headers=headers, params=params)
     if res.status_code == 200:
         video_id = res.json()["items"][0]["id"]["videoId"]
@@ -43,22 +51,17 @@ def video_id_from_search(query: str, config: Config) -> str | None:
         return None
 
 
-YDL_OPTS = {'format': 'bestaudio',
-            'logger': YoutubeDLLogger(),
-            'outtmpl': os.path.join(SAVE_DIR, "%(id)s")}
-
-
 def maybe_download(video_id: str) -> str | None:
     file_path = os.path.join(SAVE_DIR, video_id)
 
     if os.path.isfile(file_path):
         return file_path
 
-    with yt_dlp.YoutubeDL(params=YDL_OPTS) as ydl:  # TODO avoid creating a new instace of YouTube every time to see if it speeds up downloads?
-        try:
-            ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
-        except yt_dlp.utils.DownloadError:
-            return None
+    try:
+        ydl.download([f'https://www.youtube.com/watch?v={video_id}'])
+    except yt_dlp.utils.DownloadError:
+        return None
+
     return file_path
 
 
