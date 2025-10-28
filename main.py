@@ -34,22 +34,28 @@ def main():
         channel_id = http_client.get_user_voice_channel(guild_id, user_id)
         search_query = event.get("data")["options"][0]["value"]
 
+        http_client.respond_interaction_with_message(event, "Loading...", deferred=True)
+
         if voice_client is None or voice_client.closed:
             if channel_id is None:
-                http_client.respond_interaction_with_message(event, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
+                http_client.update_original_interaction_response(event, "You need to be in a channel I can join or have already joined, in the same server you called me.")
                 return
             else:
-                http_client.respond_interaction_with_message(event, "OK. Joining channel and preparing audio... (may take a while)", ephemeral=True)
                 voice_client = await client.join_voice_channel(guild_id, channel_id)
         elif voice_client.channel_id != channel_id:
-            http_client.respond_interaction_with_message(event, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
+            http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
             return
-        else:
-            http_client.respond_interaction_with_message(event, "OK. Preparing audio... (may take a while)", ephemeral=True)
 
-        file_path = await asyncio.get_running_loop().run_in_executor(executor, youtube.get_video, search_query, config)
-        if file_path is not None:
-            song_task = asyncio.create_task(voice_client.play_song(file_path))
+        media = youtube.get_video_from_user_query(search_query, config)
+        if media is None:
+            http_client.update_original_interaction_response(event, "Failed to get video metadata", ephemeral=True)
+            return
+
+        http_client.update_original_interaction_response(event, f"Playing [{media.title}]({media.link}) ({media.duration // 60}:{media.duration % 60})")
+
+        download_success = await asyncio.get_running_loop().run_in_executor(executor, media.download)
+        if download_success:
+            song_task = asyncio.create_task(voice_client.play_song(media.file_path))
 
     client.register_interaction_handler("play", handle_play)
     try:

@@ -33,6 +33,10 @@ class HttpClient:
         headers = self._headers(True)
         return requests.post(f"{self._api_url}{path}", headers=headers, json=body)
 
+    def patch(self, path: str, body: Dict[str, Any]) -> requests.Response:
+        headers = self._headers(True)
+        return requests.patch(f"{self._api_url}{path}", headers=headers, json=body)
+
     def get_gateway_url(self) -> str:
         base_url = self.get("/gateway")["url"]
         params = {"v": self._config.api_version, "encoding": self._config.encoding}
@@ -48,11 +52,20 @@ class HttpClient:
         resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
         return resp.get("channel_id")
 
-    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False):
+    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False):
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"
         logger.log("OUT", f"RESPONDING INTERACTION {id}")
         flags = (1 << 6) if ephemeral else 0
-        resp = self.post(respond_url, {"type": 4, "data": {"content": message, "flags": flags}})
+        interaction_type = 5 if deferred else 4
+        resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags | (1 << 2)}})
         logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
+
+    def update_original_interaction_response(self, interaction_event: Event, message: str):
+        id = interaction_event.get("id")
+        token = interaction_event.get("token")
+        respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
+        logger.log("OUT", f"UPDATING INTERACTION {id}")
+        resp = self.patch(respond_url, {"content": message, "flags": 1 << 2})
+        logger.log("IN", f"INTERACTION {id} UPDATE RESPONSE GOT STATUS {resp.status_code}")
