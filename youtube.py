@@ -108,7 +108,7 @@ def build_media_file(video_id: str, config: Config) -> MediaFile | None:
                          file_path=file_path(video_id),
                          link=youtube_link(video_id),
                          title=json["items"][0]["snippet"]["title"],
-                         thumbnail=json["items"][0]["snippet"]["thumbnails"]["standard"]["url"],
+                         thumbnail=json["items"][0]["snippet"]["thumbnails"]["default"]["url"],
                          duration=int(isodate.parse_duration(json["items"][0]["contentDetails"]["duration"]).total_seconds()),
                          download_fn=lambda: download(video_id))
     return None

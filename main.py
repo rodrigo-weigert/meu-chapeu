@@ -51,7 +51,7 @@ def main():
             http_client.update_original_interaction_response(event, "Failed to get video metadata", ephemeral=True)
             return
 
-        http_client.update_original_interaction_response(event, f"Playing [{media.title}]({media.link}) ({media.duration // 60}:{media.duration % 60})")
+        http_client.update_original_interaction_response(event, f"Playing [{media.title}]({media.link}) ({media.duration_str()})")
 
         download_success = await asyncio.get_running_loop().run_in_executor(executor, media.download)
         if download_success:
