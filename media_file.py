@@ -20,4 +20,4 @@ class MediaFile:
         return self.is_downloaded() or self.download_fn()
 
     def duration_str(self) -> str:
-        return f"{self.duration // 60}:{self.duration % 60:%02d}"
+        return f"{self.duration // 60}:{self.duration % 60:02d}"
