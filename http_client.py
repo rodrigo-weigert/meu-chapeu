@@ -46,7 +46,7 @@ class HttpClient:
     def create_slash_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
         logger.log("OUT", f"Creating command {json.dumps(params)}")
         resp = self.post(f"/applications/{self._config.application_id}/commands", body=params).json()
-        logger.log("IN", "Command creation response: {resp}")
+        logger.log("IN", f"Command creation response: {resp}")
         return resp
 
     def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
