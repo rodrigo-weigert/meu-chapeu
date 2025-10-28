@@ -12,6 +12,9 @@ from logs import logger as base_logger
 logger = base_logger.bind(context="GatewayClient")
 
 
+ALLOWED_RECONNECT_CLOSE_CODES = {1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
+
+
 class Client:
     url: str
     intents: int
@@ -147,8 +150,8 @@ class Client:
 
         logger.log("OUT", f"VOICE_STATE_UPDATE: {vsu_payload}")
 
-    async def handle_reconnect(self, event: Event):
-        logger.log("IN", "RECONNECT")
+    async def reconnect(self):
+        logger.info("Reconnecting...")
         self._ws = await websockets.connect(self._resume_url)
         await self.send(OpCode.RESUME, {"token": self.config.api_token,
                                         "session_id": self._session_id,
@@ -157,20 +160,34 @@ class Client:
 
     async def receive_loop(self):
         while True:
-            event = Event(await self._ws.recv())
+            try:
+                event = Event(await self._ws.recv())
+            except websockets.exceptions.ConnectionClosedOK as e:
+                logger.info(f"Connection normal closure ({e.code} - {e.reason}), stopping client")
+                return
+            except websockets.exceptions.ConnectionClosedError as e:
+                logger.warning(f"Connection closed with error (close code: {e.code}, reason: {e.reason})")
+                if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
+                    await self.reconnect()
+                    continue
+                else:
+                    logger.warning(f"Close code {e.code} does not allow reconnection, stopping client")
+                    return
+
             if event.seq_num:
                 self._last_seq = event.seq_num
             match event.opcode:
                 case OpCode.HELLO:
                     asyncio.create_task(self.handle_hello(event))
                 case OpCode.HEARTBEAT_ACK:
-                    logger.log("IN", "HEARTBEAT ACK")
+                    logger.log("IN", "HEARTBEAT ACK")  # TODO: handle lack of heartbeat ack (zombie connection)
                 case OpCode.HEARTBEAT:
                     await self.send_heartbeat()
                 case OpCode.DISPATCH:
                     asyncio.create_task(self.handle_dispatch(event))
                 case OpCode.RECONNECT:
-                    await self.handle_reconnect(event)
+                    logger.log("IN", "RECONNECT")
+                    await self.reconnect()
                 case OpCode.INVALID_SESSION:
                     logger.log("IN", "INVALID SESSION")
                     logger.info("Received invalid session, exiting")
