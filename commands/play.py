@@ -1,9 +1,9 @@
 Play = {"name": "play",
-        "description": "This is a test",
+        "description": "Stream some audio",
         "integration_types": [0],  # GUILD
         "contexts": [0],           # GUILD
         "options": [{"type": 3,    # STRING
                      "name": "query",
-                     "description": "Search input",
+                     "description": "Search input or link",
                      "required": True,
                      "autocomplete": False}]}
