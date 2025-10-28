@@ -8,6 +8,7 @@ from config import Config
 from event import Event
 from typing import Dict, Any
 from logs import logger as base_logger
+from interactions import InteractionType, InteractionFlag
 
 logger = base_logger.bind(context="HttpClient")
 
@@ -56,16 +57,22 @@ class HttpClient:
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"
+        flags = InteractionFlag.SUPRESS_EMBEDS
+
         logger.log("OUT", f"RESPONDING INTERACTION {id}")
-        flags = (1 << 6) if ephemeral else 0
-        interaction_type = 5 if deferred else 4
-        resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags | (1 << 2)}})
+
+        if ephemeral:
+            flags |= InteractionFlag.EPHEMERAL
+        interaction_type = InteractionType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE if deferred else InteractionType.CHANNEL_MESSAGE_WITH_SOURCE
+
+        resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
         logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
 
     def update_original_interaction_response(self, interaction_event: Event, message: str):
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
+
         logger.log("OUT", f"UPDATING INTERACTION {id}")
-        resp = self.patch(respond_url, {"content": message, "flags": 1 << 2})
+        resp = self.patch(respond_url, {"content": message, "flags": InteractionFlag.SUPRESS_EMBEDS})
         logger.log("IN", f"INTERACTION {id} UPDATE RESPONSE GOT STATUS {resp.status_code}")
