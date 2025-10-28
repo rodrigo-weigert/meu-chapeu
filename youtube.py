@@ -1,4 +1,3 @@
-import os
 import requests
 import tempfile
 import urllib.parse
@@ -8,12 +7,13 @@ import isodate
 from logs import logger as base_logger
 from config import Config
 from media_file import MediaFile
+from pathlib import Path
 
 API_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 API_INFO_URL = "https://www.googleapis.com/youtube/v3/videos"
 
 logger = base_logger.bind(context="YoutubeDL")
-SAVE_DIR = os.path.join(tempfile.gettempdir(), 'meu-chapeu')
+SAVE_DIR = Path(tempfile.gettempdir()) / 'meu-chapeu'
 
 
 class YoutubeDLLogger:
@@ -29,7 +29,7 @@ class YoutubeDLLogger:
 
 YDL_OPTS = {'format': 'm4a/bestaudio/bestaudio*[height<=480]',
             'logger': YoutubeDLLogger(),
-            'outtmpl': os.path.join(SAVE_DIR, "%(id)s"),
+            'outtmpl': str(SAVE_DIR / "%(id)s"),
             'allowed_extractors': ["youtube"],
             'verbose': True}
 
@@ -55,8 +55,8 @@ def video_id_from_search(query: str, config: Config) -> str | None:
         return None
 
 
-def file_path(video_id: str) -> str:
-    return os.path.join(SAVE_DIR, video_id)
+def file_path(video_id: str) -> Path:
+    return SAVE_DIR / video_id
 
 
 def youtube_link(video_id: str) -> str:

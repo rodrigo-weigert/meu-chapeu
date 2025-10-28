@@ -55,7 +55,7 @@ def main():
 
         download_success = await asyncio.get_running_loop().run_in_executor(executor, media.download)
         if download_success:
-            song_task = asyncio.create_task(voice_client.play_song(media.file_path))
+            song_task = asyncio.create_task(voice_client.play_song(str(media.file_path)))
 
     client.register_interaction_handler("play", handle_play)
     try:
