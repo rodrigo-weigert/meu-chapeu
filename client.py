@@ -23,6 +23,7 @@ class Client:
     _voice_server_updates: Dict[str, asyncio.Future[Event]]
     _session_id: str
     _resume_url: str
+    _identified: bool
 
     def __init__(self, url: str, intents: int, config: Config):
         self.url = url
@@ -32,6 +33,7 @@ class Client:
         self._interaction_handlers = {}
         self._voice_state_updates = {}
         self._voice_server_updates = {}
+        self._identified = False
 
     def register_interaction_handler(self, interaction_name: str, handler: Callable[[Event], Any]):
         self._interaction_handlers[interaction_name] = handler
@@ -55,11 +57,15 @@ class Client:
                 "properties": {"os": "linux",
                                "browser": "meu_chapeu",
                                "device": "meu_chapeu"}}
-        logger.log("OUT", "IDENTIFY")
         await self.send(OpCode.IDENTIFY, data)
+        logger.log("OUT", "IDENTIFY")
 
     async def handle_hello(self, event: Event):
         logger.log("IN", "HELLO")
+
+        if self._identified:
+            return
+
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         initial_wait = heartbeat_interval * random.random()
         logger.info(f"Heartbeat interval: {heartbeat_interval:.3f} s")
@@ -88,6 +94,7 @@ class Client:
             case "READY":
                 self._session_id = event.get("session_id")
                 self._resume_url = event.get("resume_gateway_url")
+                self._identified = True
             case "INTERACTION_CREATE":
                 command_name = event.get("data")["name"]
                 await self._interaction_handlers[command_name](event)
@@ -143,10 +150,10 @@ class Client:
     async def handle_reconnect(self, event: Event):
         logger.log("IN", "RECONNECT")
         self._ws = await websockets.connect(self._resume_url)
-        logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
         await self.send(OpCode.RESUME, {"token": self.config.api_token,
                                         "session_id": self._session_id,
                                         "seq": self._last_seq})
+        logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
 
     async def receive_loop(self):
         while True:
