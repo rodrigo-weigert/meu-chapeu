@@ -168,8 +168,9 @@ class VoiceClient:
         logger.info("Idle timer started")
         try:
             await asyncio.sleep(self.config.idle_timeout)
-            logger.info(f"Bot was idle for {self.config.idle_timeout} seconds, disconnecting")
-            await self.close()
+            if not self._closed:
+                logger.info(f"Bot was idle for {self.config.idle_timeout} seconds, disconnecting")
+                await self.close()
         except asyncio.CancelledError:
             logger.info("Idle timer cancelled")
 
