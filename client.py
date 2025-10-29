@@ -12,7 +12,7 @@ from logs import logger as base_logger
 logger = base_logger.bind(context="GatewayClient")
 
 
-ALLOWED_RECONNECT_CLOSE_CODES = {1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
+ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
 
 
 class Client:
