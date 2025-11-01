@@ -27,6 +27,7 @@ class Client:
     _session_id: str
     _resume_url: str
     _identified: bool
+    _closed: bool
 
     def __init__(self, url: str, intents: int, config: Config):
         self.url = url
@@ -37,6 +38,7 @@ class Client:
         self._voice_state_updates = {}
         self._voice_server_updates = {}
         self._identified = False
+        self._closed = False
 
     def register_interaction_handler(self, interaction_name: str, handler: Callable[[Event], Any]):
         self._interaction_handlers[interaction_name] = handler
@@ -46,11 +48,15 @@ class Client:
         await self._ws.send(json.dumps(payload))
 
     async def send_heartbeat(self):
+        try:
+            await self.send(OpCode.HEARTBEAT, self._last_seq)
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning("Could not send heartbeat: connection is closed (reconnecting?)")
+            return
         logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
-        await self.send(OpCode.HEARTBEAT, self._last_seq)
 
     async def regular_heartbeats(self, heartbeat_interval):
-        while True:
+        while not self._closed:
             await self.send_heartbeat()
             await asyncio.sleep(heartbeat_interval)
 
@@ -189,7 +195,7 @@ class Client:
                     logger.log("IN", "RECONNECT")
                     await self.reconnect()
                 case OpCode.INVALID_SESSION:
-                    logger.log("IN", "INVALID SESSION")
+                    logger.log("IN", f"INVALID SESSION {event}")
                     logger.info("Received invalid session, exiting")
                     break
 
@@ -201,4 +207,5 @@ class Client:
         except asyncio.exceptions.CancelledError:
             logger.info("Receive loop task cancelled")
         finally:
+            self._closed = True
             await self._ws.close()
