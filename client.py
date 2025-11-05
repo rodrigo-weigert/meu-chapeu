@@ -169,8 +169,13 @@ class Client:
             try:
                 event = Event(await self._ws.recv())
             except websockets.exceptions.ConnectionClosedOK as e:
-                logger.info(f"Connection normal closure ({e.code} - {e.reason}), stopping client")
-                return
+                logger.info(f"Connection normal closure (close code: {e.code}, reason: {e.reason})")
+                if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
+                    await self.reconnect()
+                    continue
+                else:
+                    logger.info(f"Close code {e.code} does not allow reconnection, stopping client")
+                    return
             except websockets.exceptions.ConnectionClosedError as e:
                 logger.warning(f"Connection closed with error (close code: {e.code}, reason: {e.reason})")
                 if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
