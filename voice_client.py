@@ -33,7 +33,7 @@ class VoiceClient:
     nonce: int
     encryption_mode: str
     ready: asyncio.Event
-    _idle_timer: asyncio.Task
+    _idle_timer: asyncio.Task | None
     _receive_loop: asyncio.Task
     _player: asyncio.Task
     _on_close: Callable[[], Awaitable[Any]]
@@ -55,9 +55,9 @@ class VoiceClient:
         self._executor = ThreadPoolExecutor()
         self._closed = False
         self._on_close = on_close
-        self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
         self.media_queue = asyncio.Queue()
         self._player = asyncio.create_task(self.play_loop())
+        self._idle_timer = None
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -113,25 +113,34 @@ class VoiceClient:
                                   "mode": self.encryption_mode}})
 
     async def play_song(self, media_file: MediaFile) -> None:
-        self._idle_timer.cancel()
         await self.ready.wait()
         packets = media_file.packets()
         await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
         self.nonce += len(packets)
-        self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
 
     async def play_loop(self):
-        while True:
-            logger.info("Waiting for next song in queue...")
-            next_media = await self.media_queue.get()
-            logger.info(f"Waiting for download of {next_media} to complete...")
-            ready = await next_media.downloaded
-            if ready:
-                logger.info(f"Now playing {next_media}")
-                await self.play_song(next_media)
-            else:
-                logger.warn(f"Download of {next_media} did not succeed, skipping")
+        try:
+            while True:
+                logger.info("Waiting for next song in queue...")
+
+                if self.media_queue.qsize() == 0:
+                    self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
+
+                next_media = await self.media_queue.get()
+
+                if self._idle_timer is not None:
+                    self._idle_timer.cancel()
+
+                logger.info(f"Waiting for download of {next_media} to complete...")
+                ready = await next_media.downloaded
+                if ready:
+                    logger.info(f"Now playing {next_media}")
+                    await self.play_song(next_media)
+                else:
+                    logger.warn(f"Download of {next_media} did not succeed, skipping")
+        except asyncio.CancelledError:
+            logger.info("Play loop cancelled")
 
     async def enqueue_media(self, media: MediaFile):
         asyncio.get_running_loop().run_in_executor(self._executor, media.download)
@@ -181,7 +190,8 @@ class VoiceClient:
         await self._ws.close()
         self._sock.close()
         await self._on_close()
-        self._idle_timer.cancel()
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
         self._closed = True
 
     async def disconnect_after_delay(self) -> None:
