@@ -16,4 +16,5 @@ types-requests==2.32.4.20250913
 types-yt-dlp==2025.9.26.20251009
 urllib3==2.5.0
 websockets==15.0.1
-yt-dlp==2025.10.25.232842.dev0
+yt-dlp==2025.11.15.232912.dev0
+yt-dlp-ejs==0.3.1

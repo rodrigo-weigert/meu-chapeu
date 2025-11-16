@@ -12,3 +12,5 @@ RUN make
 
 WORKDIR /bot
 CMD ["python", "main.py"]
+
+# TODO install deno
