@@ -131,8 +131,6 @@ def get_video_from_user_query(user_query: str, config: Config) -> MediaFile | No
         logger.warning(f"Failed to find video for query '{user_query}'")
         return None
 
-    logger.info(f"Found video ID {video_id} for query '{user_query}'")
-
     media_file = build_media_file(video_id, config)
     if media_file is None:
         logger.error(f"Failed to retrieve data about video ID {video_id} for query '{user_query}'")
