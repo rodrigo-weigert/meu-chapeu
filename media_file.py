@@ -1,3 +1,5 @@
+import asyncio
+
 from dataclasses import dataclass, field
 from typing import Callable
 from pathlib import Path
@@ -12,12 +14,18 @@ class MediaFile:
     duration: int
     link: str
     download_fn: Callable[[], bool] = field(repr=False)
-
-    def is_downloaded(self) -> bool:
-        return self.file_path.is_file()
+    downloaded: asyncio.Future = field(init=False, repr=False)
 
     def download(self) -> bool:
-        return self.is_downloaded() or self.download_fn()
+        if self.downloaded.done():
+            return self.downloaded.result()
+
+        result = self.download_fn()
+        self.downloaded.set_result(result)
+        return result
 
     def duration_str(self) -> str:
         return f"{self.duration // 60}:{self.duration % 60:02d}"
+
+    def __post_init__(self):
+        object.__setattr__(self, "downloaded", asyncio.get_running_loop().create_future())
