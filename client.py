@@ -2,11 +2,13 @@ import asyncio
 import json
 import random
 import websockets
+import youtube
 
 from event import Event, OpCode
-from typing import Callable, Dict, Any
+from typing import Dict, Any
 from config import Config
 from voice_client import VoiceClient
+from http_client import HttpClient
 from logs import logger as base_logger
 
 logger = base_logger.bind(context="GatewayClient")
@@ -16,12 +18,13 @@ ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007,
 
 
 class Client:
+    http_client: HttpClient
     url: str
     intents: int
     config: Config
+    voice_clients: Dict[str, VoiceClient]
     _ws: websockets.ClientConnection
     _last_seq: int | None
-    _interaction_handlers: Dict[str, Callable[[Event], Any]]
     _voice_state_updates: Dict[str, asyncio.Future[Event]]
     _voice_server_updates: Dict[str, asyncio.Future[Event]]
     _session_id: str
@@ -29,19 +32,17 @@ class Client:
     _identified: bool
     _closed: bool
 
-    def __init__(self, url: str, intents: int, config: Config):
-        self.url = url
+    def __init__(self, http_client: HttpClient, intents: int, config: Config):
+        self.url = http_client.get_gateway_url()
+        self.http_client = http_client
         self._last_seq = None
         self.intents = intents
         self.config = config
-        self._interaction_handlers = {}
+        self.voice_clients = {}
         self._voice_state_updates = {}
         self._voice_server_updates = {}
         self._identified = False
         self._closed = False
-
-    def register_interaction_handler(self, interaction_name: str, handler: Callable[[Event], Any]):
-        self._interaction_handlers[interaction_name] = handler
 
     async def send(self, op: OpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -97,6 +98,36 @@ class Client:
         if fut:
             fut.set_result(event)
 
+    async def handle_play(self, event: Event):
+        guild_id = event.get("guild_id")
+        user_id = event.get("member")["user"]["id"]
+
+        self.http_client.respond_interaction_with_message(event, "", deferred=True)
+
+        channel_id = self.http_client.get_user_voice_channel(guild_id, user_id)
+        if channel_id is None:
+            self.http_client.update_original_interaction_response(event, "You need to be in a channel I can join or have already joined, in the same server you called me.")
+            return
+
+        voice_client = self.voice_clients.get(guild_id)
+
+        if voice_client is None or voice_client.closed:
+            voice_client = await self.join_voice_channel(guild_id, channel_id)
+            self.voice_clients[guild_id] = voice_client
+        elif voice_client.channel_id != channel_id:
+            self.http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
+            return
+
+        search_query = event.get("data")["options"][0]["value"]
+        media = youtube.get_video_from_user_query(search_query, self.config)
+
+        if media is None:
+            self.http_client.update_original_interaction_response(event, "Failed to get video metadata")
+            return
+
+        self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
+        await voice_client.enqueue_media(media)
+
     async def handle_dispatch(self, event: Event):
         logger.log("IN", f"DISPATCH: {event}")
         match event.name:
@@ -106,7 +137,10 @@ class Client:
                 self._identified = True
             case "INTERACTION_CREATE":
                 command_name = event.get("data")["name"]
-                await self._interaction_handlers[command_name](event)
+                match command_name:
+                    case "play":
+                        await self.handle_play(event)
+
             case "VOICE_STATE_UPDATE":
                 self.handle_voice_state_update(event)
             case "VOICE_SERVER_UPDATE":

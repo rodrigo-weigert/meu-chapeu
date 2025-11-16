@@ -11,6 +11,7 @@ from typing import Any, List, Callable, Awaitable
 from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
+from media_file import MediaFile
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -35,7 +36,9 @@ class VoiceClient:
     ready: asyncio.Event
     _idle_timer: asyncio.Task
     _receive_loop: asyncio.Task
+    _player: asyncio.Task
     _on_close: Callable[[], Awaitable[Any]]
+    media_queue: asyncio.Queue
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
@@ -54,6 +57,8 @@ class VoiceClient:
         self._closed = False
         self._on_close = on_close
         self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
+        self.media_queue = asyncio.Queue()
+        self._player = asyncio.create_task(self.play_loop())
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -116,6 +121,22 @@ class VoiceClient:
         self.audio_seq += len(packets)
         self.nonce += len(packets)
         self._idle_timer = asyncio.create_task(self.disconnect_after_delay())
+
+    async def play_loop(self):
+        while True:
+            logger.info("Waiting for next song in queue...")
+            next_media = await self.media_queue.get()
+            logger.info(f"Waiting for download of {next_media} to complete...")
+            ready = await next_media.downloaded
+            if ready:
+                logger.info(f"Now playing {next_media}")
+                await self.play_song(next_media.file_path)
+            else:
+                logger.warn(f"Download of {next_media} did not succeed, skipping")
+
+    async def enqueue_media(self, media: MediaFile):
+        asyncio.get_running_loop().run_in_executor(self._executor, media.download)
+        await self.media_queue.put(media)
 
     async def handle_session_description(self, event: VoiceEvent):
         logger.log("IN", f"SESSION DESCRIPTION {event}")
