@@ -4,13 +4,13 @@ import urllib.parse
 import yt_dlp
 import isodate
 import opus
-import os
 import pickle
 
 from logs import logger as base_logger
 from config import Config
 from media_file import MediaFile
 from pathlib import Path
+from arguments import args
 
 API_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search"
 API_INFO_URL = "https://www.googleapis.com/youtube/v3/videos"
@@ -21,7 +21,8 @@ SAVE_DIR = Path(tempfile.gettempdir()) / 'meu-chapeu'
 
 class YoutubeDLLogger:
     def debug(self, msg):
-        logger.info(msg)
+        if args.ydl_verbose:
+            logger.info(msg)
 
     def warning(self, msg):
         logger.warning(msg)
@@ -34,7 +35,7 @@ YDL_OPTS = {'format': 'bestaudio/bestaudio*[height<=480]',
             'logger': YoutubeDLLogger(),
             'outtmpl': str(SAVE_DIR / "%(id)s"),
             'allowed_extractors': ["youtube"],
-            'verbose': True}
+            'verbose': args.ydl_verbose}
 
 ydl = yt_dlp.YoutubeDL(params=YDL_OPTS)  # type: ignore[arg-type]
 
