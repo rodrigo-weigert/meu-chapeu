@@ -3,6 +3,9 @@ import tempfile
 import urllib.parse
 import yt_dlp
 import isodate
+import opus
+import os
+import pickle
 
 from logs import logger as base_logger
 from config import Config
@@ -64,6 +67,11 @@ def youtube_link(video_id: str) -> str:
 
 
 def download(video_id: str) -> bool:
+    path = file_path(video_id)
+    if path.is_file():
+        logger.info(f"Video ID {video_id} is already downloaded, skipping download")
+        return True
+
     logger.info(f"Downloading video ID {video_id}")
     try:
         ydl.download([youtube_link(video_id)])
@@ -71,6 +79,9 @@ def download(video_id: str) -> bool:
         logger.error(f"Failed to download video ID {video_id}")
         return False
     logger.info(f"Downloaded video ID {video_id} successfully")
+    packets = opus.encode(str(path))
+    with open(path, "wb") as f:
+        pickle.dump(packets, f)
     return True
 
 

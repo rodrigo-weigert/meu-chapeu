@@ -1,6 +1,5 @@
 import asyncio
 import json
-import opus
 import random
 import socket
 import udp
@@ -113,10 +112,10 @@ class VoiceClient:
                                   "port": my_port,
                                   "mode": self.encryption_mode}})
 
-    async def play_song(self, media_file_name: str) -> None:
+    async def play_song(self, media_file: MediaFile) -> None:
         self._idle_timer.cancel()
         await self.ready.wait()
-        packets = opus.encode(media_file_name)
+        packets = media_file.packets()
         await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
         self.audio_seq += len(packets)
         self.nonce += len(packets)
@@ -130,7 +129,7 @@ class VoiceClient:
             ready = await next_media.downloaded
             if ready:
                 logger.info(f"Now playing {next_media}")
-                await self.play_song(next_media.file_path)
+                await self.play_song(next_media)
             else:
                 logger.warn(f"Download of {next_media} did not succeed, skipping")
 
