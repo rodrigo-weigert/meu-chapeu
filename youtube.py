@@ -30,7 +30,7 @@ class YoutubeDLLogger:
         logger.error(msg)
 
 
-YDL_OPTS = {'format': 'm4a/bestaudio/bestaudio*[height<=480]',
+YDL_OPTS = {'format': 'bestaudio/bestaudio*[height<=480]',
             'logger': YoutubeDLLogger(),
             'outtmpl': str(SAVE_DIR / "%(id)s"),
             'allowed_extractors': ["youtube"],
