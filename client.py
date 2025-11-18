@@ -192,7 +192,7 @@ class Client:
 
     async def reconnect(self):
         logger.info("Reconnecting...")
-        self._ws = await websockets.connect(self._resume_url)
+        self._ws = await websockets.connect(self._resume_url, open_timeout=None)
         await self.send(OpCode.RESUME, {"token": self.config.api_token,
                                         "session_id": self._session_id,
                                         "seq": self._last_seq})
