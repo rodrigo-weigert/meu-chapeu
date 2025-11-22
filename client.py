@@ -192,7 +192,17 @@ class Client:
 
     async def reconnect(self):
         logger.info("Reconnecting...")
-        self._ws = await websockets.connect(self._resume_url, open_timeout=None)
+        connected = False
+
+        while not connected:
+            try:
+                self._ws = await websockets.connect(self._resume_url, open_timeout=None)
+                connected = True
+            except Exception as e:
+                logger.warning(f"Exception: {e}")
+                logger.warning("Reconnection failed, retrying after 30 seconds...")
+                await asyncio.sleep(30)
+
         await self.send(OpCode.RESUME, {"token": self.config.api_token,
                                         "session_id": self._session_id,
                                         "seq": self._last_seq})
