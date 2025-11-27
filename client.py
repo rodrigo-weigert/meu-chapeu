@@ -31,6 +31,7 @@ class Client:
     _resume_url: str
     _identified: bool
     _closed: bool
+    _heartbeat_task: asyncio.Task | None
 
     def __init__(self, http_client: HttpClient, intents: int, config: Config):
         self.url = http_client.get_gateway_url()
@@ -57,9 +58,12 @@ class Client:
         logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
 
     async def regular_heartbeats(self, heartbeat_interval):
-        while not self._closed:
-            await self.send_heartbeat()
-            await asyncio.sleep(heartbeat_interval)
+        try:
+            while not self._closed:
+                await self.send_heartbeat()
+                await asyncio.sleep(heartbeat_interval)
+        except asyncio.exceptions.CancelledError:
+            logger.info("Heartbeat task cancelled")
 
     async def identify(self):
         data = {"token": self.config.api_token,
@@ -82,7 +86,7 @@ class Client:
         logger.info(f"Will start regular heartbeats in {initial_wait:.3f} s")
         await self.identify()
         await asyncio.sleep(initial_wait)
-        asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
+        self._heartbeat_task = asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
 
     def handle_voice_state_update(self, event: Event):
         if event.get("member")["user"]["id"] != self.config.application_id:
@@ -208,6 +212,19 @@ class Client:
                                         "seq": self._last_seq})
         logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
 
+    async def handle_invalid_session(self):
+        logger.info("Received invalid session, opening new session in 60 seconds")
+
+        self._identified = False
+
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+
+        await asyncio.sleep(60)
+        logger.info("Attempting to start a new session...")
+        self._ws = await websockets.connect(self.url, open_timeout=None)
+        logger.info("New session started")
+
     async def receive_loop(self):
         while True:
             try:
@@ -245,12 +262,7 @@ class Client:
                     await self.reconnect()
                 case OpCode.INVALID_SESSION:
                     logger.log("IN", f"INVALID SESSION {event}")
-                    logger.info("Received invalid session, opening new session in 60 seconds")
-                    await asyncio.sleep(60)
-                    logger.info("Attempting to start a new session...")
-                    self._identified = False
-                    self._ws = await websockets.connect(self.url, open_timeout=None)
-                    logger.info("New session started")
+                    await self.handle_invalid_session()
 
     async def start(self):
         logger.info("Bot starting")
