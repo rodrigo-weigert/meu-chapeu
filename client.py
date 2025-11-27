@@ -245,8 +245,12 @@ class Client:
                     await self.reconnect()
                 case OpCode.INVALID_SESSION:
                     logger.log("IN", f"INVALID SESSION {event}")
-                    logger.info("Received invalid session, exiting")
-                    break
+                    logger.info("Received invalid session, opening new session in 60 seconds")
+                    await asyncio.sleep(60)
+                    logger.info("Attempting to start a new session...")
+                    self._identified = False
+                    self._ws = await websockets.connect(self.url, open_timeout=None)
+                    logger.info("New session started")
 
     async def start(self):
         logger.info("Bot starting")
