@@ -12,6 +12,4 @@ WORKDIR /bot/opus
 RUN make
 
 WORKDIR /bot
-CMD ["python", "main.py"]
-
-# TODO install deno
+CMD ["python", "main.py", "--logfile", "/bot/logs/meu-chapeu.log"]
