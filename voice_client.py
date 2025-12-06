@@ -189,7 +189,8 @@ class VoiceClient:
         self._receive_loop.cancel(msg="Close method was called")
         self._player.cancel(msg="Closed method was called")
         await self._ws.close()
-        self._sock.close()
+        if self._sock is not None:
+            self._sock.close()
         await self._on_close()
         if self._idle_timer is not None:
             self._idle_timer.cancel()
