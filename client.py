@@ -126,7 +126,7 @@ class Client:
         media = youtube.get_video_from_user_query(search_query, self.config)
 
         if media is None:
-            self.http_client.update_original_interaction_response(event, "Failed to get video metadata")
+            self.http_client.update_original_interaction_response(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
             return
 
         self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")

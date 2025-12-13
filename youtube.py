@@ -51,9 +51,13 @@ def video_id_from_search(query: str, config: Config) -> str | None:
     logger.info(f"Searching YouTube for query '{query}'")
     res = requests.get(API_SEARCH_URL, headers=headers, params=params)
     if res.status_code == 200:
-        video_id = res.json()["items"][0]["id"]["videoId"]
-        logger.info(f"Found video ID {video_id} for query '{query}'")
-        return video_id
+        results = res.json()["items"]
+        if len(results) > 0:
+            video_id = results[0]["id"]["videoId"]
+            logger.info(f"Found video ID {video_id} for query '{query}'")
+            return video_id
+        logger.info(f"Search for '{query}' returned no results")
+        return None
     else:
         logger.warning(f"YouTube API returned {res.status_code}")
         return None
