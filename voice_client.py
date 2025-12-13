@@ -138,7 +138,7 @@ class VoiceClient:
                     logger.info(f"Now playing {next_media}")
                     await self.play_song(next_media)
                 else:
-                    logger.warn(f"Download of {next_media} did not succeed, skipping")
+                    logger.warning(f"Download of {next_media} did not succeed, skipping")
         except asyncio.CancelledError:
             logger.info("Play loop cancelled")
 
