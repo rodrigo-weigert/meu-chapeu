@@ -220,9 +220,16 @@ class Client:
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
 
-        await asyncio.sleep(60)
-        logger.info("Attempting to start a new session...")
-        self._ws = await websockets.connect(self.url, open_timeout=None)
+        connected = False
+        while not connected:
+            await asyncio.sleep(60)
+            logger.info("Attempting to start a new session...")
+            try:
+                self._ws = await websockets.connect(self.url, open_timeout=None)
+                connected = True
+            except Exception as e:
+                logger.warning(f"Attempt to start new session failed. Exception: {e}")
+
         logger.info("New session started")
 
     async def receive_loop(self):
