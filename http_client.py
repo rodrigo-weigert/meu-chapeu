@@ -66,8 +66,14 @@ class HttpClient:
         interaction_type = InteractionType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE if deferred else InteractionType.CHANNEL_MESSAGE_WITH_SOURCE
 
         resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
-        logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
-        return resp.status_code >= 200 and resp.status_code < 300
+
+        success = resp.status_code >= 200 and resp.status_code < 300
+        if success:
+            logger.log("IN", f"INTERACTION {id} RESPONSE SUCCESSFUL, STATUS {resp.status_code}")
+        else:
+            logger.warning("IN", f"INTERACTION {id} RESPONSE ERROR, STATUS {resp.status_code}, BODY: {resp.json()}")
+
+        return success
 
     def update_original_interaction_response(self, interaction_event: Event, message: str) -> bool:
         id = interaction_event.get("id")
