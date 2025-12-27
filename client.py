@@ -106,7 +106,9 @@ class Client:
         guild_id = event.get("guild_id")
         user_id = event.get("member")["user"]["id"]
 
-        self.http_client.respond_interaction_with_message(event, "", deferred=True)
+        response_ok = self.http_client.respond_interaction_with_message(event, "", deferred=True)
+        if not response_ok:
+            return
 
         channel_id = self.http_client.get_user_voice_channel(guild_id, user_id)
         if channel_id is None:
@@ -129,8 +131,9 @@ class Client:
             self.http_client.update_original_interaction_response(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
             return
 
-        self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
-        await voice_client.enqueue_media(media)
+        response_ok = self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
+        if response_ok:
+            await voice_client.enqueue_media(media)
 
     async def handle_dispatch(self, event: Event):
         logger.log("IN", f"DISPATCH: {event}")
