@@ -53,7 +53,7 @@ class HttpClient:
         resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
         return resp.get("channel_id")
 
-    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False):
+    def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/interactions/{id}/{token}/callback"
@@ -67,8 +67,9 @@ class HttpClient:
 
         resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
         logger.log("IN", f"INTERACTION {id} RESPONSE GOT STATUS {resp.status_code}")
+        return resp.status_code >= 200 and resp.status_code < 300
 
-    def update_original_interaction_response(self, interaction_event: Event, message: str):
+    def update_original_interaction_response(self, interaction_event: Event, message: str) -> bool:
         id = interaction_event.get("id")
         token = interaction_event.get("token")
         respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
@@ -76,3 +77,4 @@ class HttpClient:
         logger.log("OUT", f"UPDATING INTERACTION {id}")
         resp = self.patch(respond_url, {"content": message, "flags": InteractionFlag.SUPRESS_EMBEDS})
         logger.log("IN", f"INTERACTION {id} UPDATE RESPONSE GOT STATUS {resp.status_code}")
+        return resp.status_code >= 200 and resp.status_code < 300
