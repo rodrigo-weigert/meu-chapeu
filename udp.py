@@ -1,9 +1,9 @@
-import asyncio
 import crypto
 import random
 import struct
 import socket
 import time
+import threading
 
 from typing import Tuple, List
 from logs import logger as base_logger
@@ -42,7 +42,7 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
     return header + encrypted_payload + nonce.to_bytes(4, "little")
 
 
-def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str) -> None:
+def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str, stop_event: threading.Event) -> int:
     logger.info("Starting audio stream")
 
     ts = random.getrandbits(32)  # TODO: should be voice client state
@@ -52,18 +52,23 @@ def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, in
 
     now = time.perf_counter()
     next_time = now + 0.02
+    sent_packets = 0
 
     try:
         for packet in packets:
+            if stop_event.is_set():
+                logger.info("Received stop event, stopping stream")
+                break
             sleep_amount = next_time - time.perf_counter()
             if sleep_amount > 0:
                 time.sleep(sleep_amount)
             sock.send(packet)
+            sent_packets += 1
             next_time += 0.02
     except OSError as e:
         if e.errno == 9:
             logger.info("Socket was closed. Stopping stream.")
         else:
             logger.warning(f"Socket was closed unexpectedly (error code = {e.errno}. Stopping stream.")
-        return
-    logger.info(f"Audio stream end, duration: {0.02 * len(audio_payloads)} seconds, total packets: {len(audio_payloads)}")
+    logger.info(f"Audio stream end, duration: {0.02 * sent_packets} seconds, total packets sent: {sent_packets}")
+    return sent_packets

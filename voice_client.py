@@ -2,6 +2,7 @@ import asyncio
 import json
 import random
 import socket
+import threading
 import udp
 import websockets
 
@@ -38,6 +39,7 @@ class VoiceClient:
     _player: asyncio.Task
     _on_close: Callable[[], Awaitable[Any]]
     media_queue: asyncio.Queue
+    _stop_event: threading.Event | None
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
@@ -58,6 +60,7 @@ class VoiceClient:
         self.media_queue = asyncio.Queue()
         self._player = asyncio.create_task(self.play_loop())
         self._idle_timer = None
+        self._stop_event = None
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -114,10 +117,12 @@ class VoiceClient:
 
     async def play_song(self, media_file: MediaFile) -> None:
         await self.ready.wait()
+        self._stop_event = threading.Event()
         packets = media_file.packets()
-        await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode)
-        self.audio_seq += len(packets)
-        self.nonce += len(packets)
+        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode, self._stop_event)
+        self.audio_seq += sent_packets
+        self.nonce += sent_packets
+        self._stop_event = None
 
     async def play_loop(self):
         try:
@@ -145,6 +150,12 @@ class VoiceClient:
     async def enqueue_media(self, media: MediaFile):
         asyncio.get_running_loop().run_in_executor(self._executor, media.download)
         await self.media_queue.put(media)
+
+    def skip_current_media(self) -> bool:
+        if self._stop_event is not None:
+            self._stop_event.set()
+            return True
+        return False
 
     async def handle_session_description(self, event: VoiceEvent):
         logger.log("IN", f"SESSION DESCRIPTION {event}")
@@ -187,7 +198,7 @@ class VoiceClient:
         if self._closed:
             return
         self._receive_loop.cancel(msg="Close method was called")
-        self._player.cancel(msg="Closed method was called")
+        self._player.cancel(msg="Close method was called")
         await self._ws.close()
         if self._sock is not None:
             self._sock.close()

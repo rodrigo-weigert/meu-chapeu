@@ -16,6 +16,7 @@ def main():
     config = Config()
     http_client = HttpClient(config)
     http_client.create_slash_command(commands.Play)
+    http_client.create_slash_command(commands.Skip)
     client = Client(http_client, Intent.GUILD_VOICE_STATES, config)
 
     try:

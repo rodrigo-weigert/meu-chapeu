@@ -135,6 +135,23 @@ class Client:
         if response_ok:
             await voice_client.enqueue_media(media)
 
+    def handle_skip(self, event: Event):
+        guild_id = event.get("guild_id")
+        user_id = event.get("member")["user"]["id"]
+        voice_client = self.voice_clients.get(guild_id)
+
+        if voice_client is None:
+            self.http_client.respond_interaction_with_message(event, "I'm not connected in this server", ephemeral=True)
+            return
+        elif voice_client.channel_id != self.http_client.get_user_voice_channel(guild_id, user_id):
+            self.http_client.respond_interaction_with_message(event, "You need to be in the same channel I'm currently connected to", ephemeral=True)
+            return
+
+        if voice_client.skip_current_media():
+            self.http_client.respond_interaction_with_message(event, "Skipped")
+        else:
+            self.http_client.respond_interaction_with_message(event, "Nothing to skip", ephemeral=True)
+
     async def handle_dispatch(self, event: Event):
         logger.log("IN", f"DISPATCH: {event}")
         match event.name:
@@ -147,6 +164,8 @@ class Client:
                 match command_name:
                     case "play":
                         await self.handle_play(event)
+                    case "skip":
+                        self.handle_skip(event)
 
             case "VOICE_STATE_UPDATE":
                 self.handle_voice_state_update(event)
