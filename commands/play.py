@@ -4,6 +4,6 @@ Play = {"name": "play",
         "contexts": [0],           # GUILD
         "options": [{"type": 3,    # STRING
                      "name": "query",
-                     "description": "Search input or link",
+                     "description": "Search query or link",
                      "required": True,
                      "autocomplete": False}]}
