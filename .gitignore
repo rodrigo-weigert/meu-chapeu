@@ -3,3 +3,4 @@ meu-chapeu-env
 .env
 .flake8
 *.so
+deploy.env
