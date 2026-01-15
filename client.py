@@ -124,6 +124,8 @@ class Client:
             self.http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
             return
 
+        logger.info("Not playing song after joining voice channel (forced return for testing)")
+
         search_query = event.get("data")["options"][0]["value"]
         media = youtube.get_video_from_user_query(search_query, self.config)
 
@@ -132,8 +134,8 @@ class Client:
             return
 
         response_ok = self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
-        if response_ok:
-            await voice_client.enqueue_media(media)
+        # if response_ok:
+        #    await voice_client.enqueue_media(media)
 
     def handle_skip(self, event: Event):
         guild_id = event.get("guild_id")

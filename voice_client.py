@@ -12,6 +12,7 @@ from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
+from openmls_dave import DaveSession
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -40,6 +41,8 @@ class VoiceClient:
     _on_close: Callable[[], Awaitable[Any]]
     media_queue: asyncio.Queue
     _stop_event: threading.Event | None
+    _external_sender_event: asyncio.Future[VoiceEvent]
+    dave_session: DaveSession | None
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
@@ -61,10 +64,15 @@ class VoiceClient:
         self._player = asyncio.create_task(self.play_loop())
         self._idle_timer = None
         self._stop_event = None
+        self.dave_session = None
+        self._external_sender_event = asyncio.get_running_loop().create_future()
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
+
+    async def send_binary(self, op: VoiceOpCode, data: bytes):
+        await self._ws.send(op.value.to_bytes(1) + data)
 
     async def send_heartbeat(self, nonce: int):
         await self.send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,
@@ -86,7 +94,7 @@ class VoiceClient:
                 "server_id": self.guild_id,
                 "user_id": self.config.application_id,
                 "session_id": self.session_id,
-                "max_dave_protocol_version": 0}
+                "max_dave_protocol_version": 1}
         logger.log("OUT", f"IDENTIFY guild_id = {self.guild_id}")
         await self.send(VoiceOpCode.IDENTIFY, data)
 
@@ -159,12 +167,26 @@ class VoiceClient:
 
     async def handle_session_description(self, event: VoiceEvent):
         logger.log("IN", f"SESSION DESCRIPTION {event}")
+
         self._encryption_key = event.get("secret_key")
-        logger.info(f"Encryption key: {self._encryption_key}")
+
+        if event.get("dave_protocol_version") > 0:
+            self.dave_session = DaveSession(self.config.application_id)
+            key_package = self.dave_session.get_key_package_message()
+            await self.send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
+            logger.log("OUT", f"DAVE MLS KEY PACKAGE - {len(key_package)} bytes")
+
         speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
         logger.log("OUT", f"SPEAKING {speaking_payload}")
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
         self.ready.set()
+
+    async def handle_dave_mls_welcome(self, event: VoiceEvent):
+        external_sender = (await self._external_sender_event).get("external_sender")
+        logger.debug(f"External sender: f{external_sender}")
+        logger.debug(f"Welcome: {event}")
+        print(event.get("welcome_message"))
+        self.dave_session.init_mls_group(external_sender.credential.identity, external_sender.signature_key, event.get("welcome_message"))
 
     async def receive_loop(self):
         while True:
@@ -191,8 +213,13 @@ class VoiceClient:
                     asyncio.create_task(self.handle_ready(event))
                 case VoiceOpCode.SESSION_DESCRIPTION:
                     asyncio.create_task(self.handle_session_description(event))
+                case VoiceOpCode.DAVE_MLS_EXTERNAL_SENDER:
+                    logger.log("IN", "DAVE EXTERNAL SENDER")
+                    self._external_sender_event.set_result(event)
+                case VoiceOpCode.DAVE_MLS_WELCOME:
+                    asyncio.create_task(self.handle_dave_mls_welcome(event))
                 case _:
-                    logger.log("IN", f"VOICE UNKNOWN {event}")
+                    logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
     async def close(self) -> None:
         if self._closed:
