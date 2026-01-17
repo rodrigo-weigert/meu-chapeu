@@ -1,4 +1,5 @@
 import asyncio
+import crypto
 import json
 import random
 import socket
@@ -42,7 +43,8 @@ class VoiceClient:
     media_queue: asyncio.Queue
     _stop_event: threading.Event | None
     _external_sender_event: asyncio.Future[VoiceEvent]
-    dave_session: DaveSession | None
+    dave_session: DaveSession
+    dave_key_ratchet: crypto.KeyRatchet | None
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
@@ -64,8 +66,9 @@ class VoiceClient:
         self._player = asyncio.create_task(self.play_loop())
         self._idle_timer = None
         self._stop_event = None
-        self.dave_session = None
+        self.dave_session = DaveSession(self.config.application_id)
         self._external_sender_event = asyncio.get_running_loop().create_future()
+        self.dave_key_ratchet = None
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -125,6 +128,7 @@ class VoiceClient:
 
     async def play_song(self, media_file: MediaFile) -> None:
         await self.ready.wait()
+
         self._stop_event = threading.Event()
         packets = media_file.packets()
         sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode, self._stop_event)
@@ -171,7 +175,6 @@ class VoiceClient:
         self._encryption_key = event.get("secret_key")
 
         if event.get("dave_protocol_version") > 0:
-            self.dave_session = DaveSession(self.config.application_id)
             key_package = self.dave_session.get_key_package_message()
             await self.send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
             logger.log("OUT", f"DAVE MLS KEY PACKAGE - {len(key_package)} bytes")
@@ -182,10 +185,13 @@ class VoiceClient:
         self.ready.set()
 
     async def handle_dave_mls_welcome(self, event: VoiceEvent):
+        logger.log("IN", "DAVE MLS WELCOME")
+
         external_sender = (await self._external_sender_event).get("external_sender")
         self.dave_session.init_mls_group(external_sender.credential.identity, external_sender.signature_key, event.get("welcome_message"))
         base_sender_key = self.dave_session.export_base_sender_key()
-        logger.debug(f"Export sender key obtained: {base_sender_key} ({len(base_sender_key)} bytes)")
+        self.dave_key_ratchet = crypto.KeyRatchet(base_sender_key)
+        logger.info("DAVE key ratchet initialized")
 
     async def receive_loop(self):
         while True:

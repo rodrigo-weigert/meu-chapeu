@@ -1,4 +1,5 @@
-from construct import FocusedSeq, Int8ub, Bytes, this, Switch, Int16ub, Struct, GreedyBytes, If, Default, Adapter, Rebuild, len_
+from construct import (FocusedSeq, Int8ub, Bytes, this, Switch, Int16ub, Struct,
+                       GreedyBytes, If, Default, Adapter, Rebuild, len_)
 
 
 class _ParseLengthHeader(Adapter):
@@ -82,4 +83,10 @@ DAVE_Message = Struct(
                                   27: DAVE_MLSProposals_Body,
                                   29: DAVE_MLSAnnounceCommitTransition_Body,
                                   30: DAVE_MLSWelcome_Body})
+)
+
+KDFLabel = Struct(
+    "length" / Int16ub,
+    "label" / Vector,
+    "context" / Vector
 )
