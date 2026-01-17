@@ -1,34 +1,48 @@
-from construct import FocusedSeq, Int8ub, Bytes, this, Peek, BitsInteger, Switch, Int16ub, Int32ub, Struct, BitStruct, GreedyBytes, If
+from construct import FocusedSeq, Int8ub, Bytes, this, Switch, Int16ub, Struct, GreedyBytes, If, Default, Adapter, Rebuild, len_
 
-_Vector1 = FocusedSeq(
-    "data",
-    "length" / Int8ub,
-    "data" / Bytes(this.length)
+
+class _ParseLengthHeader(Adapter):
+    def _decode(self, obj, ctx, path):
+        prefix = obj.first_byte >> 6
+        rest = obj.first_byte & ((1 << 6)-1)
+
+        if prefix == 0:
+            return rest
+        if prefix == 1:
+            return (rest << 8) | int.from_bytes(obj.remaining_bytes)
+        if prefix == 2:
+            return (rest << 24) | int.from_bytes(obj.remaining_bytes)
+
+        raise ValueError("Invalid length header")
+
+    def _encode(self, obj, ctx, path):
+        if obj < (1 << 6):
+            return {"first_byte": obj,
+                    "remaining_bytes": None}
+        elif obj < (1 << 14):
+            return {"first_byte": (obj >> 8) | 0x40,
+                    "remaining_bytes": (obj & ((1 << 8) - 1)).to_bytes()}
+        elif obj < (1 << 30):
+            return {"first_byte": (obj >> 24) | 0x80,
+                    "remaining_bytes": (obj & ((1 << 24) - 1)).to_bytes(length=3)}
+
+        raise ValueError("Length exceeds Vector limit")
+
+
+_LengthHeader = Struct(
+    "first_byte" / Int8ub,
+    "remaining_bytes" / Default(If((this.first_byte >> 6) > 0, Switch(this.first_byte >> 6, {1: Bytes(1),
+                                                                                             2: Bytes(3)})),
+                                b'\x00'),
 )
 
-_Vector2 = FocusedSeq(
-    "data",
-    "length" / Int16ub,
-    "data" / Bytes(this.length & ((1 << 14)-1))
-)
-
-_Vector4 = FocusedSeq(
-    "data",
-    "length" / Int32ub,
-    "data" / Bytes(this.length & ((1 << 30)-1))
-)
-
-LengthBytePeek = Peek(BitStruct(
-    "prefix" / BitsInteger(2),
-    BitsInteger(6)
-))
+LengthHeader = _ParseLengthHeader(_LengthHeader)
 
 Vector = FocusedSeq(
     "data",
-    "first_length_byte" / LengthBytePeek,
-    "data" / Switch(this.first_length_byte.prefix, {0: _Vector1,
-                                                    1: _Vector2,
-                                                    2: _Vector4}))
+    "length" / Rebuild(LengthHeader, len_(this.data)),
+    "data" / Bytes(this.length)
+)
 
 Credential = Struct(
         "credential_type" / Int16ub,
