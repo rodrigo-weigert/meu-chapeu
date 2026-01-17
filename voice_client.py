@@ -55,7 +55,7 @@ class VoiceClient:
         self._encryption_key = []
         self.ssrc = 0
         self.audio_seq = random.getrandbits(32)
-        self.nonce = random.getrandbits(32)
+        self.nonce = 0
         self.ready = asyncio.Event()
         self._executor = ThreadPoolExecutor()
         self._closed = False
@@ -183,10 +183,9 @@ class VoiceClient:
 
     async def handle_dave_mls_welcome(self, event: VoiceEvent):
         external_sender = (await self._external_sender_event).get("external_sender")
-        logger.debug(f"External sender: f{external_sender}")
-        logger.debug(f"Welcome: {event}")
-        print(event.get("welcome_message"))
         self.dave_session.init_mls_group(external_sender.credential.identity, external_sender.signature_key, event.get("welcome_message"))
+        base_sender_key = self.dave_session.export_base_sender_key()
+        logger.debug(f"Export sender key obtained: {base_sender_key} ({len(base_sender_key)} bytes)")
 
     async def receive_loop(self):
         while True:
