@@ -13,7 +13,7 @@ from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
-from openmls_dave import DaveSession
+from dave.session import DaveSessionManager, ExternalSender
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -43,7 +43,7 @@ class VoiceClient:
     media_queue: asyncio.Queue
     _stop_event: threading.Event | None
     _external_sender_event: asyncio.Future[VoiceEvent]
-    dave_session: DaveSession
+    dave_session_manager: DaveSessionManager
     dave_key_ratchet: crypto.KeyRatchet | None
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
@@ -66,7 +66,7 @@ class VoiceClient:
         self._player = asyncio.create_task(self.play_loop())
         self._idle_timer = None
         self._stop_event = None
-        self.dave_session = DaveSession(self.config.application_id)
+        self.dave_session_manager = DaveSessionManager(self.config.application_id)
         self._external_sender_event = asyncio.get_running_loop().create_future()
         self.dave_key_ratchet = None
 
@@ -174,24 +174,36 @@ class VoiceClient:
 
         self._encryption_key = event.get("secret_key")
 
-        if event.get("dave_protocol_version") > 0:
-            key_package = self.dave_session.get_key_package_message()
-            await self.send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
-            logger.log("OUT", f"DAVE MLS KEY PACKAGE - {len(key_package)} bytes")
-
         speaking_payload = {"ssrc": self.ssrc, "speaking": (1 << 0), "delay": 0}
-        logger.log("OUT", f"SPEAKING {speaking_payload}")
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
-        self.ready.set()
+        logger.log("OUT", f"SPEAKING {speaking_payload}")
+
+        if event.get("dave_protocol_version") > 0:
+            key_package = self.dave_session_manager.get_key_package_message()
+            await self.send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
+            logger.log("OUT", "DAVE MLS KEY PACKAGE")
+        else:
+            self.ready.set()
+
+    def handle_dave_mls_external_sender(self, event: VoiceEvent):
+        logger.log("IN", "DAVE MLS EXTERNAL SENDER")
+        self._external_sender_event.set_result(event)
 
     async def handle_dave_mls_welcome(self, event: VoiceEvent):
         logger.log("IN", "DAVE MLS WELCOME")
 
-        external_sender = (await self._external_sender_event).get("external_sender")
-        self.dave_session.init_mls_group(external_sender.credential.identity, external_sender.signature_key, event.get("welcome_message"))
-        base_sender_key = self.dave_session.export_base_sender_key()
-        self.dave_key_ratchet = crypto.KeyRatchet(base_sender_key)
-        logger.info("DAVE key ratchet initialized")
+        es = (await self._external_sender_event).get("external_sender")
+        self._external_sender_event = asyncio.get_running_loop().create_future()
+
+        external_sender = ExternalSender(identity=es.credential.identity, signature=es.signature_key)
+        self.dave_session_manager.set_external_sender(external_sender)
+
+        self.dave_session_manager.init_from_welcome(event.get("welcome_message"))
+        # TODO send ready for transition (23)
+        # TODO receive and process execute transition (22)
+        # TODO self.ready.set()
+        # Have to ensure smooth upgrades to / downgrades from DAVE
+        logger.info("DAVE session initialized")
 
     async def receive_loop(self):
         while True:
@@ -219,8 +231,7 @@ class VoiceClient:
                 case VoiceOpCode.SESSION_DESCRIPTION:
                     asyncio.create_task(self.handle_session_description(event))
                 case VoiceOpCode.DAVE_MLS_EXTERNAL_SENDER:
-                    logger.log("IN", "DAVE EXTERNAL SENDER")
-                    self._external_sender_event.set_result(event)
+                    self.handle_dave_mls_external_sender(event)
                 case VoiceOpCode.DAVE_MLS_WELCOME:
                     asyncio.create_task(self.handle_dave_mls_welcome(event))
                 case _:
