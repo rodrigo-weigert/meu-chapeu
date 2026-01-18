@@ -22,14 +22,13 @@ def encrypt_packet(header: bytes, payload: bytes, nonce: int, key: bytes, mode: 
         case _:
             raise NotImplementedError(f"Unimplemented transport encryption mode: {mode}")
 
-# This is all untested
-
 
 # TODO better names
 def encrypt_dave(payload: bytes, nonce: bytes, key: bytes) -> Tuple[bytes, bytes]:
+    expanded_nonce = b'\x00' * 8 + nonce  # TODO confirm if big or little endian
     cipher = Cipher(
         algorithms.AES(key),
-        modes.GCM(nonce, min_tag_length=8),
+        modes.GCM(expanded_nonce, min_tag_length=8),
         backend=default_backend()
     )
 
@@ -41,6 +40,7 @@ def encrypt_dave(payload: bytes, nonce: bytes, key: bytes) -> Tuple[bytes, bytes
     return ciphertext, tag
 
 
+# TODO verify if this function is correct
 def _derive_tree_secret(secret: bytes, label: str, generation: int, length: int) -> bytes:
     label_bytes = b"MLS 1.0 " + label.encode("ascii")
     context_bytes = generation.to_bytes(length=4)
@@ -56,7 +56,8 @@ class KeyRatchet:
     def __init__(self, base_secret: bytes):
         self.generation = 0
         self.key = _derive_tree_secret(base_secret, "key", 0, 16)
-        self.nonce = _derive_tree_secret(base_secret, "nonce", 0, 12)
+        full_nonce = _derive_tree_secret(base_secret, "nonce", 0, 12)  # TODO what if I just generate with length 4?
+        self.nonce = full_nonce[-4:]  # big endian
 
     def get(self, generation: int) -> Tuple[bytes, bytes]:
         if generation > 0:

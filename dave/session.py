@@ -3,6 +3,8 @@ import openmls_dave
 
 from dataclasses import dataclass
 from enum import Enum, unique, auto
+from typing import Tuple
+
 
 @dataclass(frozen=True)
 class ExternalSender:
@@ -37,12 +39,14 @@ class DaveSessionManager:
     dave_session: openmls_dave.DaveSession
     key_ratchet: crypto.KeyRatchet | None
     external_sender: ExternalSender | None
+    sync_nonce: int
     _pending_transition: Transition | None
 
     def __init__(self, user_id: str):
         self.dave_session = openmls_dave.DaveSession(user_id)
-        self.key_rachet = None
+        self.key_ratchet = None
         self.external_sender = None
+        self.sync_nonce = 0  # TODO this may be unnecssary
         self._pending_transition = None
 
     def get_key_package_message(self) -> bytes:
@@ -72,12 +76,10 @@ class DaveSessionManager:
         self.key_ratchet = crypto.KeyRatchet(self.dave_session.export_base_sender_key())
         self._pending_transition = None
 
-    def session_is_active(self) -> bool:
-        return self.key_ratchet is not None
+    def get_current_media_key(self, generation: int) -> MediaKey | None:
+        kr = self.key_ratchet
+        if kr is None:
+            return None
 
-    def get_media_key(self, generation=0) -> MediaKey:
-        if self.key_ratchet is None:
-            raise DaveException("Cannot derive media key: missing key ratchet. Make sure instance is initialized by calling one of the init methods.")
-
-        key, nonce = self.key_ratchet.get(generation)
+        key, nonce = kr.get(generation)
         return MediaKey(key=key, nonce=nonce)

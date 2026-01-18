@@ -131,7 +131,7 @@ class VoiceClient:
 
         self._stop_event = threading.Event()
         packets = media_file.packets()
-        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode, self._stop_event)
+        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode, self._stop_event, self.dave_session_manager)
         self.audio_seq += sent_packets
         self.nonce += sent_packets
         self._stop_event = None
