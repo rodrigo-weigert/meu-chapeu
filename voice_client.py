@@ -192,18 +192,24 @@ class VoiceClient:
     async def handle_dave_mls_welcome(self, event: VoiceEvent):
         logger.log("IN", "DAVE MLS WELCOME")
 
-        es = (await self._external_sender_event).get("external_sender")
+        es = (await asyncio.wait_for(self._external_sender_event, timeout=10.0)).get("external_sender")
         self._external_sender_event = asyncio.get_running_loop().create_future()
 
         external_sender = ExternalSender(identity=es.credential.identity, signature=es.signature_key)
         self.dave_session_manager.set_external_sender(external_sender)
 
-        self.dave_session_manager.init_from_welcome(event.get("welcome_message"))
-        # TODO send ready for transition (23)
-        # TODO receive and process execute transition (22)
-        # TODO self.ready.set()
-        # Have to ensure smooth upgrades to / downgrades from DAVE
-        logger.info("DAVE session initialized")
+        transition_id = event.get("transition_id")
+        self.dave_session_manager.stage_transition_from_welcome(transition_id, event.get("welcome_message"))
+
+        await self.send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
+        logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
+
+    def handle_dave_execute_transition(self, event: VoiceEvent):
+        transition_id = event.get("transition_id")
+        logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
+        self.dave_session_manager.execute_transition(transition_id)
+        logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
+        self.ready.set()  # TODO improve this, only relevant on VoiceClient initialization
 
     async def receive_loop(self):
         while True:
@@ -234,6 +240,8 @@ class VoiceClient:
                     self.handle_dave_mls_external_sender(event)
                 case VoiceOpCode.DAVE_MLS_WELCOME:
                     asyncio.create_task(self.handle_dave_mls_welcome(event))
+                case VoiceOpCode.DAVE_EXECUTE_TRANSITION:
+                    self.handle_dave_execute_transition(event)
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
