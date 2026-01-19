@@ -15,7 +15,7 @@ class ExternalSender:
 @dataclass(frozen=True)
 class MediaKey:
     key: bytes
-    nonce: bytes
+    nonce: int
 
 
 class DaveException(Exception):
@@ -39,14 +39,14 @@ class DaveSessionManager:
     dave_session: openmls_dave.DaveSession
     key_ratchet: crypto.KeyRatchet | None
     external_sender: ExternalSender | None
-    sync_nonce: int
+    _nonce: int
     _pending_transition: Transition | None
 
     def __init__(self, user_id: str):
         self.dave_session = openmls_dave.DaveSession(user_id)
         self.key_ratchet = None
         self.external_sender = None
-        self.sync_nonce = 0  # TODO this may be unnecssary
+        self._nonce = 0
         self._pending_transition = None
 
     def get_key_package_message(self) -> bytes:
@@ -76,10 +76,16 @@ class DaveSessionManager:
         self.key_ratchet = crypto.KeyRatchet(self.dave_session.export_base_sender_key())
         self._pending_transition = None
 
-    def get_current_media_key(self, generation: int) -> MediaKey | None:
+    def nonce(self) -> Tuple[int, int]:
+        current_nonce = self._nonce & 0xFFFFFFFF
+        current_gen = self._nonce >> 24
+        self._nonce += 1
+        return current_nonce, current_gen
+
+    def get_current_media_key(self) -> MediaKey | None:
         kr = self.key_ratchet
         if kr is None:
             return None
 
-        key, nonce = kr.get(generation)
-        return MediaKey(key=key, nonce=nonce)
+        nonce, generation = self.nonce()
+        return MediaKey(key=kr.get(generation), nonce=nonce)

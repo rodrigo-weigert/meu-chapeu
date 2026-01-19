@@ -57,7 +57,7 @@ class VoiceClient:
         self._encryption_key = []
         self.ssrc = 0
         self.audio_seq = random.getrandbits(32)
-        self.nonce = 0
+        self.nonce = random.getrandbits(32)
         self.ready = asyncio.Event()
         self._executor = ThreadPoolExecutor()
         self._closed = False
@@ -209,7 +209,7 @@ class VoiceClient:
         logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
         self.dave_session_manager.execute_transition(transition_id)
         logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
-        self.ready.set()  # TODO improve this, only relevant on VoiceClient initialization
+        self.ready.set()  # TODO improve this, only relevant on VoiceClient initialization, not on every transition
 
     async def receive_loop(self):
         while True:

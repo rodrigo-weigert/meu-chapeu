@@ -3,7 +3,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
 
 
 from dave.parser import KDFLabel
@@ -24,12 +23,12 @@ def encrypt_packet(header: bytes, payload: bytes, nonce: int, key: bytes, mode: 
 
 
 # TODO better names
-def encrypt_dave(payload: bytes, nonce: bytes, key: bytes) -> Tuple[bytes, bytes]:
-    expanded_nonce = b'\x00' * 8 + nonce  # TODO confirm if big or little endian
+def encrypt_dave(payload: bytes, nonce: int, key: bytes) -> Tuple[bytes, bytes]:
+    nonce_bytes = b'\x00' * 8 + nonce.to_bytes(4, "little")
+
     cipher = Cipher(
         algorithms.AES(key),
-        modes.GCM(expanded_nonce, min_tag_length=8),
-        backend=default_backend()
+        modes.GCM(nonce_bytes, min_tag_length=8)
     )
 
     encryptor = cipher.encryptor()
@@ -40,7 +39,6 @@ def encrypt_dave(payload: bytes, nonce: bytes, key: bytes) -> Tuple[bytes, bytes
     return ciphertext, tag
 
 
-# TODO verify if this function is correct
 def _derive_tree_secret(secret: bytes, label: str, generation: int, length: int) -> bytes:
     label_bytes = b"MLS 1.0 " + label.encode("ascii")
     context_bytes = generation.to_bytes(length=4)
@@ -56,10 +54,8 @@ class KeyRatchet:
     def __init__(self, base_secret: bytes):
         self.generation = 0
         self.key = _derive_tree_secret(base_secret, "key", 0, 16)
-        full_nonce = _derive_tree_secret(base_secret, "nonce", 0, 12)  # TODO what if I just generate with length 4?
-        self.nonce = full_nonce[-4:]  # big endian
 
-    def get(self, generation: int) -> Tuple[bytes, bytes]:
+    def get(self, generation: int) -> bytes:
         if generation > 0:
             raise NotImplementedError("No support for generations beyond 0")
-        return self.key, self.nonce
+        return self.key

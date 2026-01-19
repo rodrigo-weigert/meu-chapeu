@@ -37,21 +37,20 @@ def _rtp_header(ssrc: int, seq: int, timestamp: int) -> bytes:
     return struct.pack(_RTP_HEADER_FORMAT, b'\x80', b'\x78', seq & ((1 << 16) - 1), timestamp & ((1 << 32) - 1), ssrc)
 
 
-# TODO double check if this is correct
 def _to_uleb128(val: int) -> bytes:
     result = b''
     while val >= 0x80:
         result += (0x80 | (val & 0x7F)).to_bytes()
         val >>= 7
-    result += val.to_bytes()
+    result += val.to_bytes(length=1, byteorder="big")  # TODO remove unnecessary args?
     return result
 
 
 def _build_dave_payload(payload: bytes, media_key: MediaKey) -> bytes:
     ciphertext, tag = crypto.encrypt_dave(payload, media_key.nonce, media_key.key)
-    sync_nonce = _to_uleb128(int.from_bytes(media_key.nonce, "big"))
-    supplemental_data_size = len(tag) + len(sync_nonce) + 3
-    return ciphertext + tag + sync_nonce + supplemental_data_size.to_bytes() + b'\xFA\xFA'
+    nonce_uleb128 = _to_uleb128(media_key.nonce)
+    supplemental_data_size = len(tag) + len(nonce_uleb128) + 3
+    return ciphertext + tag + nonce_uleb128 + supplemental_data_size.to_bytes(length=1, byteorder="big") + b'\xFA\xFA'
 
 
 def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int,
@@ -60,7 +59,7 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
     header = _rtp_header(ssrc, sequence, timestamp)
 
     try:
-        media_key = dave.get_current_media_key(nonce >> 24)
+        media_key = dave.get_current_media_key()
         if media_key is not None:
             payload = _build_dave_payload(payload, media_key)
     except Exception as e:
