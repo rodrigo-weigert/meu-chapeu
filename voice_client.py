@@ -106,7 +106,7 @@ class VoiceClient:
 
     async def _send_heartbeat(self, nonce: int):
         await self._send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,
-                                                "t": nonce})
+                                                 "t": nonce})
         logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}, nonce = {nonce}")
 
     async def _regular_heartbeats(self, heartbeat_interval: float):
