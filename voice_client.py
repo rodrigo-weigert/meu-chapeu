@@ -23,48 +23,48 @@ class VoiceClient:
     _url: str
     _session_id: str
     _token: str
+    _on_close: Callable[[], Awaitable[Any]]
     _config: Config
     _ssrc: int
     _audio_seq: int
-    _closed: bool
     _last_seq: int
-    _ws: websockets.ClientConnection
-    _sock: socket.socket
-    _encryption_key: List[int]
+    _rtp_nonce: int
+    _closed: bool
     _executor: Executor
-    _nonce: int
-    _encryption_mode: str
     _session_ready: asyncio.Event
     _dave_session_ready: asyncio.Event
     _idle_timer: asyncio.Task | None
-    _receive_loop: asyncio.Task
     _player: asyncio.Task
-    _on_close: Callable[[], Awaitable[Any]]
     _media_queue: asyncio.Queue
     _stop_event: threading.Event | None
-    _external_sender_event: asyncio.Event
     _dave_session_manager: DaveSessionManager
+    _external_sender_ready: asyncio.Event
+    _ws: websockets.ClientConnection
+    _sock: socket.socket
+    _transport_encryption_mode: str
+    _transport_encryption_key: List[int]
+    _receive_loop: asyncio.Task
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
+        self._guild_id = guild_id
+        self._channel_id = channel_id
         self._url = f"wss://{url}?v=8"
         self._session_id = session_id
         self._token = token
-        self._guild_id = guild_id
-        self._channel_id = channel_id
+        self._on_close = on_close
         self._config = config
-        self._last_seq = -1
-        self._encryption_key = []
+
         self._ssrc = 0
         self._audio_seq = random.getrandbits(32)
+        self._last_seq = -1
         self._rtp_nonce = random.getrandbits(32)
+        self._closed = False
+        self._executor = ThreadPoolExecutor()
         self._session_ready = asyncio.Event()
         self._dave_session_ready = asyncio.Event()
-        self._executor = ThreadPoolExecutor()
-        self._closed = False
-        self._on_close = on_close
-        self._media_queue = asyncio.Queue()
-        self._player = asyncio.create_task(self.play_loop())
         self._idle_timer = None
+        self._player = asyncio.create_task(self.play_loop())
+        self._media_queue = asyncio.Queue()
         self._stop_event = None
         self._dave_session_manager = DaveSessionManager(self._config.application_id)
         self._external_sender_ready = asyncio.Event()
@@ -76,6 +76,8 @@ class VoiceClient:
     @property
     def closed(self):
         return self._closed
+
+    # TODO move public methods up here, prepend internal methods with _
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -122,16 +124,16 @@ class VoiceClient:
     async def handle_ready(self, event: VoiceEvent):
         logger.log("IN", f"VOICE READY {event}")
         ip, port, ssrc, modes = event.get("ip"), event.get("port"), event.get("ssrc"), event.get("modes")
-        self.encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
+        self._transport_encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
         self._ssrc = ssrc
         self._prepare_socket(ip, port)
         my_ip, my_port = udp.do_ip_discovery(self._sock, ssrc)
-        logger.log("OUT", f"SELECT PROTOCOL encryption mode = {self.encryption_mode}")
+        logger.log("OUT", f"SELECT PROTOCOL encryption mode = {self._transport_encryption_mode}")
         await self.send(VoiceOpCode.SELECT_PROTOCOL,
                         {"protocol": "udp",
                          "data": {"address": my_ip,
                                   "port": my_port,
-                                  "mode": self.encryption_mode}})
+                                  "mode": self._transport_encryption_mode}})
 
     async def ensure_ready(self) -> None:
         if self._session_ready.is_set() and self._dave_session_ready.is_set():
@@ -146,7 +148,7 @@ class VoiceClient:
         logger.info(f"Now playing {media_file}")
         self._stop_event = threading.Event()
         packets = media_file.packets()
-        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self._ssrc, self._audio_seq, self._encryption_key, self._rtp_nonce, self.encryption_mode, self._stop_event, self._dave_session_manager)
+        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self._ssrc, self._audio_seq, self._transport_encryption_key, self._rtp_nonce, self._transport_encryption_mode, self._stop_event, self._dave_session_manager)
         self._audio_seq += sent_packets
         self._rtp_nonce += sent_packets
         self._stop_event = None
@@ -163,6 +165,7 @@ class VoiceClient:
 
                 if self._idle_timer is not None:
                     self._idle_timer.cancel()
+                    self._idle_timer = None
 
                 logger.info(f"Waiting for download of {next_media} to complete...")
                 ready = await next_media.downloaded
@@ -186,7 +189,7 @@ class VoiceClient:
     async def handle_session_description(self, event: VoiceEvent):
         logger.log("IN", f"SESSION DESCRIPTION {event}")
 
-        self._encryption_key = event.get("secret_key")
+        self._transport_encryption_key = event.get("secret_key")
 
         speaking_payload = {"ssrc": self._ssrc, "speaking": (1 << 0), "delay": 0}
         await self.send(VoiceOpCode.SPEAKING, speaking_payload)
