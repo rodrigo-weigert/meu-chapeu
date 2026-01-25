@@ -11,3 +11,4 @@ pyo3 = { version = "0.20", features = ["extension-module"] }
 openmls = "0.7.1"
 openmls_basic_credential = "0.4.1"
 openmls_rust_crypto = "0.4.1"
+openmls_traits = "0.4.1"

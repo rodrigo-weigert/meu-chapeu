@@ -58,12 +58,9 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
                         dave: DaveSessionManager) -> bytes:
     header = _rtp_header(ssrc, sequence, timestamp)
 
-    try:
-        media_key = dave.get_current_media_key()
-        if media_key is not None:
-            payload = _build_dave_payload(payload, media_key)
-    except Exception as e:
-        logger.error(f"Exception building DAVE packet: {e}")
+    media_key = dave.get_current_media_key()
+    if media_key is not None:
+        payload = _build_dave_payload(payload, media_key)
 
     trunc_nonce = nonce & 0xFFFFFFFF
     encrypted_payload = crypto.encrypt_packet(header, payload, trunc_nonce, encryption_key, encryption_mode)

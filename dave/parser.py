@@ -70,7 +70,6 @@ DAVE_MLSAnnounceCommitTransition_Body = Struct(
 )
 
 DAVE_MLSProposals_Body = Struct(
-    "transition_id" / Int16ub,
     "operation_type" / Int8ub,
     "proposal_messages" / If(this.operation_type == 0, Vector),
     "proposal_refs" / If(this.operation_type == 1, Vector)

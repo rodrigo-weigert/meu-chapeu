@@ -1,5 +1,4 @@
 import asyncio
-import crypto
 import json
 import random
 import socket
@@ -13,7 +12,7 @@ from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
-from dave.session import DaveSessionManager, ExternalSender
+from dave.session import DaveSessionManager
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -35,16 +34,16 @@ class VoiceClient:
     _executor: Executor
     nonce: int
     encryption_mode: str
-    ready: asyncio.Event
+    _session_ready: asyncio.Event
+    _dave_session_ready: asyncio.Event
     _idle_timer: asyncio.Task | None
     _receive_loop: asyncio.Task
     _player: asyncio.Task
     _on_close: Callable[[], Awaitable[Any]]
     media_queue: asyncio.Queue
     _stop_event: threading.Event | None
-    _external_sender_event: asyncio.Future[VoiceEvent]
+    _external_sender_event: asyncio.Event
     dave_session_manager: DaveSessionManager
-    dave_key_ratchet: crypto.KeyRatchet | None
 
     def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
         self.url = f"wss://{url}?v=8"
@@ -58,7 +57,8 @@ class VoiceClient:
         self.ssrc = 0
         self.audio_seq = random.getrandbits(32)
         self.nonce = random.getrandbits(32)
-        self.ready = asyncio.Event()
+        self._session_ready = asyncio.Event()
+        self._dave_session_ready = asyncio.Event()
         self._executor = ThreadPoolExecutor()
         self._closed = False
         self._on_close = on_close
@@ -67,8 +67,7 @@ class VoiceClient:
         self._idle_timer = None
         self._stop_event = None
         self.dave_session_manager = DaveSessionManager(self.config.application_id)
-        self._external_sender_event = asyncio.get_running_loop().create_future()
-        self.dave_key_ratchet = None
+        self._external_sender_ready = asyncio.Event()
 
     async def send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
@@ -126,9 +125,17 @@ class VoiceClient:
                                   "port": my_port,
                                   "mode": self.encryption_mode}})
 
-    async def play_song(self, media_file: MediaFile) -> None:
-        await self.ready.wait()
+    async def ensure_ready(self) -> None:
+        if self._session_ready.is_set() and self._dave_session_ready.is_set():
+            return
+        logger.info("Waiting for session to be ready...")
+        await self._session_ready.wait()
+        await self._dave_session_ready.wait()
 
+    async def play_song(self, media_file: MediaFile) -> None:
+        await self.ensure_ready()
+
+        logger.info(f"Now playing {media_file}")
         self._stop_event = threading.Event()
         packets = media_file.packets()
         sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self.ssrc, self.audio_seq, self._encryption_key, self.nonce, self.encryption_mode, self._stop_event, self.dave_session_manager)
@@ -152,7 +159,6 @@ class VoiceClient:
                 logger.info(f"Waiting for download of {next_media} to complete...")
                 ready = await next_media.downloaded
                 if ready:
-                    logger.info(f"Now playing {next_media}")
                     await self.play_song(next_media)
                 else:
                     logger.warning(f"Download of {next_media} did not succeed, skipping")
@@ -183,33 +189,59 @@ class VoiceClient:
             await self.send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
             logger.log("OUT", "DAVE MLS KEY PACKAGE")
         else:
-            self.ready.set()
+            self._dave_session_ready.set()
+
+        self._session_ready.set()
 
     def handle_dave_mls_external_sender(self, event: VoiceEvent):
         logger.log("IN", "DAVE MLS EXTERNAL SENDER")
-        self._external_sender_event.set_result(event)
+
+        identity = event.get("external_sender").credential.identity
+        signature_key = event.get("external_sender").signature_key
+
+        self.dave_session_manager.set_external_sender(identity, signature_key)
+        self._external_sender_ready.set()
 
     async def handle_dave_mls_welcome(self, event: VoiceEvent):
-        logger.log("IN", "DAVE MLS WELCOME")
-
-        es = (await asyncio.wait_for(self._external_sender_event, timeout=10.0)).get("external_sender")
-        self._external_sender_event = asyncio.get_running_loop().create_future()
-
-        external_sender = ExternalSender(identity=es.credential.identity, signature=es.signature_key)
-        self.dave_session_manager.set_external_sender(external_sender)
-
         transition_id = event.get("transition_id")
+        logger.log("IN", f"DAVE MLS WELCOME (transition_id = {transition_id})")
+
+        await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
+
         self.dave_session_manager.stage_transition_from_welcome(transition_id, event.get("welcome_message"))
 
-        await self.send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
-        logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
+        if transition_id == 0:  # Initial group creation - may need the same logic for opcode 29 (DAVE_MLS_ANNOUNCE_COMMIT_TRANSITION)
+            self.dave_session_manager.execute_transition(0)
+            logger.info("DAVE transition successfully executed (initial group creation - skipped waiting for DAVE_EXECUTE_TRANSITION)")
+            self._dave_session_ready.set()
+        else:
+            await self.send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
+            logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
     def handle_dave_execute_transition(self, event: VoiceEvent):
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
+
         self.dave_session_manager.execute_transition(transition_id)
         logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
-        self.ready.set()  # TODO improve this, only relevant on VoiceClient initialization, not on every transition
+
+        self._dave_session_ready.set()
+
+    async def handle_dave_mls_proposals(self, event: VoiceEvent):
+        operation_type = event.get("operation_type")
+        logger.log("IN", f"DAVE MLS PROPOSALS (operation_type = {operation_type})")
+
+        # Code below currently would only work when at initial group creation phase
+        # However, it is not necessary. We can choose to opt out of sending the commit
+        # that establishes the group.
+
+        # if operation_type == 0:  # Append proposals
+        #     await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
+        #
+        #     commit_welcome_message = self.dave_session_manager.process_proposals(event.get("proposal_messages"))
+
+        #     await self.send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
+        #     logger.log("OUT", "DAVE MLS COMMIT WELCOME")
 
     async def receive_loop(self):
         while True:
@@ -242,6 +274,8 @@ class VoiceClient:
                     asyncio.create_task(self.handle_dave_mls_welcome(event))
                 case VoiceOpCode.DAVE_EXECUTE_TRANSITION:
                     self.handle_dave_execute_transition(event)
+                case VoiceOpCode.DAVE_MLS_PROPOSALS:
+                    asyncio.create_task(self.handle_dave_mls_proposals(event))
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
