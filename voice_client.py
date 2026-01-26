@@ -100,6 +100,7 @@ class VoiceClient:
     async def _send(self, op: VoiceOpCode, data: Any):
         payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
+        # TODO have logger.log("OUT",...) only here and remove all others?
 
     async def _send_binary(self, op: VoiceOpCode, data: bytes):
         await self._ws.send(op.value.to_bytes(1) + data)
@@ -250,17 +251,25 @@ class VoiceClient:
         operation_type = event.get("operation_type")
         logger.log("IN", f"DAVE MLS PROPOSALS (operation_type = {operation_type})")
 
-        # Code below currently would only work when at initial group creation phase
-        # However, it is not necessary. We can choose to opt out of sending the commit
-        # that establishes the group.
+        match operation_type:
+            case 0:  # Append
+                await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
+                commit_welcome_message = self._dave_session_manager.append_proposals(event.get("proposal_messages"))
+                await self._send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
+                logger.log("OUT", "DAVE MLS COMMIT WELCOME")
+            case 1:  # Revoke
+                raise NotImplementedError("No support for revoking proposals")
+            case _:
+                raise ValueError(f"Unknown DAVE MLS PROPOSALS operation type: {operation_type}")
 
-        # if operation_type == 0:  # Append proposals
-        #     await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
-        #
-        #     commit_welcome_message = self.dave_session_manager.process_proposals(event.get("proposal_messages"))
+    async def _handle_dave_mls_announce_commit_transition(self, event: VoiceEvent):
+        transition_id = event.get("transition_id")
+        logger.log("IN", f"DAVE MLS ANNOUNCE COMMIT TRANSITION (transition_id = {transition_id})")
 
-        #     await self._send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
-        #     logger.log("OUT", "DAVE MLS COMMIT WELCOME")
+        self._dave_session_manager.stage_transition_from_commit(transition_id, event.get("commit_message"))
+
+        await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
+        logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
     async def _receive_loop(self):
         while True:
@@ -295,6 +304,8 @@ class VoiceClient:
                     self._handle_dave_execute_transition(event)
                 case VoiceOpCode.DAVE_MLS_PROPOSALS:
                     asyncio.create_task(self._handle_dave_mls_proposals(event))
+                case VoiceOpCode.DAVE_MLS_ANNOUNCE_COMMIT_TRANSITION:
+                    await self._handle_dave_mls_announce_commit_transition(event)
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 

@@ -25,6 +25,7 @@ class DaveException(Exception):
 @unique
 class TransitionType(Enum):
     WELCOME = auto()
+    COMMIT = auto()
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,8 @@ class DaveSessionManager:
     _pending_transition: Transition | None
     _group_is_established: bool
 
+    # TODO organize private and public methods
+
     def __init__(self, user_id: str):
         self._dave_session = openmls_dave.DaveSession(user_id)
         self._key_ratchet = None
@@ -59,7 +62,7 @@ class DaveSessionManager:
 
     def stage_transition_from_welcome(self, transition_id: int, welcome: bytes):
         if self._external_sender is None:
-            raise DaveException(f"Cannot stage transition with id {transition_id}: missing external sender")
+            raise DaveException(f"Cannot stage welcome transition with id {transition_id}: missing external sender")
 
         self._pending_transition = Transition(TransitionType.WELCOME, transition_id, self._external_sender, welcome)
 
@@ -70,11 +73,14 @@ class DaveSessionManager:
         if transition_id != self._pending_transition.transition_id:
             raise DaveException(f"Tried to execute unexpected transition with id {transition_id}. Pending transition id was {self._pending_transition.transition_id}")
 
-        if self._pending_transition.transition_type == TransitionType.WELCOME:
-            self._dave_session.init_mls_group(self._pending_transition.external_sender.identity, self._pending_transition.external_sender.signature, self._pending_transition.mls_data)
-            self._group_is_established = True
-        else:
-            raise DaveException(f"Unsupported transition type: {self._pending_transition.transition_type}")
+        match self._pending_transition.transition_type:
+            case TransitionType.WELCOME:
+                self._dave_session.init_mls_group(self._pending_transition.external_sender.identity, self._pending_transition.external_sender.signature, self._pending_transition.mls_data)
+                self._group_is_established = True
+            case TransitionType.COMMIT:
+                pass
+            case _:
+                raise DaveException(f"Unsupported transition type: {self._pending_transition.transition_type}")
 
         self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
         self._pending_transition = None
@@ -93,17 +99,19 @@ class DaveSessionManager:
         nonce, generation = self.nonce()
         return MediaKey(key=kr.get(generation), nonce=nonce)
 
-    # TODO pick better function name, this currently only handles append proposals
-    def process_proposals(self, proposal_messages: bytes) -> bytes:
+    def append_proposals(self, proposal_message: bytes) -> bytes:
         if self._group_is_established:
-            raise NotImplementedError("No support for handling proposals when an MLS group is established")  # TODO
-
-        if self._external_sender is None:
+            result = self._dave_session.append_proposals(proposal_message)
+        elif self._external_sender is not None:  # Initial group creation
+            result = self._dave_session.append_proposals_local_group(proposal_message, self._external_sender.identity, self._external_sender.signature)
+        else:
             raise DaveException("Cannot process proposals using local MLS group: missing external sender")
 
-        # Initial group creation phase
-        result = self._dave_session.process_message_in_local_group(proposal_messages, self._external_sender.identity, self._external_sender.signature)
         if result.welcome is not None:
             return result.commit + result.welcome
-
         return result.commit
+
+    def stage_transition_from_commit(self, transition_id: int, commit: bytes):
+        assert self._external_sender is not None
+        self._pending_transition = Transition(TransitionType.COMMIT, transition_id, self._external_sender, commit)
+        self._dave_session.merge_commit(commit)

@@ -1,6 +1,7 @@
 __pycache__
 meu-chapeu-env
 .env
+.dev.env
 .flake8
 *.so
 deploy.env

@@ -49,6 +49,13 @@ fn get_proposal_if_valid(message: ProcessedMessage) -> Option<QueuedProposal> {
     }
 }
 
+fn deserialize_dave_mls_message(message: &[u8]) -> ProtocolMessage {
+    MlsMessageIn::tls_deserialize_exact(message)
+            .expect("Failed to parse message")
+            .try_into_protocol_message()
+            .expect("Failed to convert incoming message to ProtocolMessage")
+}
+
 #[pyclass]
 pub struct ProcessMessageResult {
     #[pyo3(get)]
@@ -56,6 +63,15 @@ pub struct ProcessMessageResult {
 
     #[pyo3(get)]
     pub welcome: Option<Py<PyBytes>>
+}
+
+impl ProcessMessageResult {
+    pub fn new(py: &Python<'_>, commit_msg: MlsMessageOut, welcome: Option<Welcome>) -> Self {
+        ProcessMessageResult {
+            commit: PyBytes::new(*py, &commit_msg.tls_serialize_detached().expect("Failed to serialize commit")).into(),
+            welcome: welcome.map(|w| PyBytes::new(*py, &w.tls_serialize_detached().expect("Failed to serialize welcome message")).into())
+        }
+    }
 }
 
 #[pyclass]
@@ -86,6 +102,30 @@ impl DaveSession {
             .expect("Failed to set local MLS group leaf node extensions")
             .build(&self.provider, &self.signature_keys, credential_with_key)
             .expect("Failed to create local MLS group")
+    }
+
+    fn process_append_proposal_message(&mut self, message: ProtocolMessage, mls_group: Option<&mut MlsGroup>) -> (MlsMessageOut, Option<Welcome>) { 
+        let group = mls_group.unwrap_or_else(|| self.mls_group.as_mut().expect("No MLS group to process message"));
+
+        let processed_message = group
+            .process_message(&self.provider, message)
+            .expect("Failed to process message with MLS group");
+
+        if let Some(queued_proposal) = get_proposal_if_valid(processed_message) {
+            group.store_pending_proposal(self.provider.storage(), queued_proposal)
+                .expect("Failed to store proposal");
+        }
+
+        let (commit_msg, welcome_msg, _group_info) = group.commit_to_pending_proposals(&self.provider, &self.signature_keys)
+            .expect("Failed to commit proposals");
+
+        let welcome = welcome_msg.map(|msg| {
+            match msg.body() {
+                MlsMessageBodyOut::Welcome(welcome) => welcome.clone(),
+                _ => unreachable!()
+            }
+        });
+        (commit_msg, welcome)
     }
 }
 
@@ -132,6 +172,7 @@ impl DaveSession {
             .expect("Failed to deserialize welcome message");
         let group_config = MlsGroupJoinConfig::builder()
             .use_ratchet_tree_extension(true)
+            .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
             .build();
         let processed_welcome = ProcessedWelcome::new_from_welcome(
             &self.provider,
@@ -166,43 +207,38 @@ impl DaveSession {
 
     // TODO: per the DAVE protocol, need to reject add proposals when user ID being added is not expected to be in the call,
     // according to clients_connect (11) and clients_disconnect (13) events
-    // TODO: better function name to reflect the fact it only deals with proposal messages. In
-    // fact, it currently only deals with *append* proposal messages
-    fn process_message_in_local_group(&mut self, py: Python<'_>, message: &[u8], es_identity: &[u8], es_signature: &[u8]) -> Py<ProcessMessageResult> {
-        let protocol_message = MlsMessageIn::tls_deserialize_exact(message)
-            .expect("Failed to parse message")
-            .try_into_protocol_message()
-            .expect("Failed to convert incoming message to ProtocolMessage");
-        let external_sender = ExternalSender::new(SignaturePublicKey::from(es_signature), BasicCredential::new(es_identity.to_vec()).into());
+    fn append_proposals_local_group(&mut self, py: Python<'_>, proposal_message: &[u8], es_identity: &[u8], es_signature: &[u8]) -> Py<ProcessMessageResult> {
+        let protocol_message = deserialize_dave_mls_message(proposal_message);
         let group_id = protocol_message.group_id().clone();
+        let external_sender = ExternalSender::new(SignaturePublicKey::from(es_signature), BasicCredential::new(es_identity.to_vec()).into());
 
-        let mut local_group = self.create_local_group(group_id, external_sender);
+        let (commit_msg, welcome) = self.process_append_proposal_message(protocol_message, Some(&mut self.create_local_group(group_id, external_sender)));
 
-        let processed_message = local_group
+        Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
+    }
+
+    fn append_proposals(&mut self, py: Python<'_>, proposal_message: &[u8]) -> Py<ProcessMessageResult> {
+        let (commit_msg, welcome) = self.process_append_proposal_message(deserialize_dave_mls_message(proposal_message), None);
+        Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
+    }
+
+    fn merge_commit(&mut self, commit_message: &[u8]) {
+        let protocol_message = deserialize_dave_mls_message(commit_message);
+        let processed_message = self.mls_group
+            .as_mut()
+            .expect("Cannot process commit message: no MLS group")
             .process_message(&self.provider, protocol_message)
-            .expect("Failed to process message with local MLS group");
+            .expect("Failed to process commit message");
 
-        if let Some(queued_proposal) = get_proposal_if_valid(processed_message) {
-            local_group.store_pending_proposal(self.provider.storage(), queued_proposal)
-                .expect("Failed to store proposal");
-        }
+        let ProcessedMessageContent::StagedCommitMessage(staged_commit) = processed_message.into_content() else {
+                panic!("Message is not a commit");
+        };
 
-        let (commit_msg, welcome_msg, _group_info) = local_group.commit_to_pending_proposals(&self.provider, &self.signature_keys)
-            .expect("Failed to create local group commit");
-
-        let welcome = welcome_msg.as_ref().map(|msg| {
-            match msg.body() {
-                MlsMessageBodyOut::Welcome(welcome) => welcome,
-                _ => unreachable!()
-            }
-        });
-
-        Py::new(py,
-                ProcessMessageResult {
-                    commit: PyBytes::new(py, &commit_msg.tls_serialize_detached().expect("Failed to serialize commit")).into(),
-                    welcome: welcome.map(|w| PyBytes::new(py, &w.tls_serialize_detached().expect("Failed to serialize welcome message")).into())
-                }
-        ).expect("Failed to create ProcessMessageResult")
+        self.mls_group
+            .as_mut()
+            .unwrap()
+            .merge_staged_commit(&self.provider, *staged_commit)
+            .expect("Failed to merge commit");
     }
 }
 
