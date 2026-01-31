@@ -245,7 +245,10 @@ class VoiceClient:
         self._dave_session_manager.execute_transition(transition_id)
         logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
 
-        self._dave_session_ready.set()
+        if self._dave_session_manager.dave_session_is_established():
+            self._dave_session_ready.set()
+        else:
+            self._external_sender_ready.clear()
 
     async def _handle_dave_mls_proposals(self, event: VoiceEvent):
         operation_type = event.get("operation_type")

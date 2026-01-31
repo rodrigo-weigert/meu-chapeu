@@ -49,7 +49,6 @@ class DaveSessionManager:
     _external_sender: ExternalSender | None
     _nonce: int
     _pending_transition: Transition | None
-    _group_is_established: bool
 
     def __init__(self, user_id: str):
         self._dave_session = openmls_dave.DaveSession(user_id)
@@ -57,7 +56,9 @@ class DaveSessionManager:
         self._external_sender = None
         self._nonce = 0
         self._pending_transition = None
-        self._group_is_established = False
+
+    def dave_session_is_established(self) -> bool:
+        return self._key_ratchet is not None
 
     def get_key_package_message(self) -> bytes:
         return self._dave_session.get_key_package_message()
@@ -82,13 +83,12 @@ class DaveSessionManager:
             case WelcomeTransition(data=welcome_data, external_sender=es):
                 self._dave_session.init_mls_group(es.identity, es.signature, welcome_data)
                 self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
-                self._group_is_established = True
             case CommitTransition():
                 self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
             case DowngradeTransition():
                 self._key_ratchet = None
+                self._external_sender = None
                 self._nonce = 0
-                self._group_is_established = False
             case _:
                 raise DaveException(f"Unsupported transition: {self._pending_transition}")
 
@@ -103,7 +103,7 @@ class DaveSessionManager:
         return MediaKey(key=kr.get(generation), nonce=nonce)
 
     def append_proposals(self, proposal_message: bytes) -> bytes:
-        if self._group_is_established:
+        if self.dave_session_is_established():
             result = self._dave_session.append_proposals(proposal_message)
         elif self._external_sender is not None:  # Initial group creation
             result = self._dave_session.append_proposals_local_group(proposal_message, self._external_sender.identity, self._external_sender.signature)
