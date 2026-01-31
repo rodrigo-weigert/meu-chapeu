@@ -44,8 +44,6 @@ class DaveSessionManager:
     _pending_transition: Transition | None
     _group_is_established: bool
 
-    # TODO organize private and public methods
-
     def __init__(self, user_id: str):
         self._dave_session = openmls_dave.DaveSession(user_id)
         self._key_ratchet = None
@@ -85,18 +83,12 @@ class DaveSessionManager:
         self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
         self._pending_transition = None
 
-    def nonce(self) -> Tuple[int, int]:
-        current_nonce = self._nonce & 0xFFFFFFFF
-        current_gen = self._nonce >> 24
-        self._nonce += 1
-        return current_nonce, current_gen
-
     def get_current_media_key(self) -> MediaKey | None:
         kr = self._key_ratchet
         if kr is None:
             return None
 
-        nonce, generation = self.nonce()
+        nonce, generation = self._get_and_advance_nonce()
         return MediaKey(key=kr.get(generation), nonce=nonce)
 
     def append_proposals(self, proposal_message: bytes) -> bytes:
@@ -115,3 +107,9 @@ class DaveSessionManager:
         assert self._external_sender is not None
         self._pending_transition = Transition(TransitionType.COMMIT, transition_id, self._external_sender, commit)
         self._dave_session.merge_commit(commit)
+
+    def _get_and_advance_nonce(self) -> Tuple[int, int]:
+        current_nonce = self._nonce & 0xFFFFFFFF
+        current_gen = self._nonce >> 24
+        self._nonce += 1
+        return current_nonce, current_gen
