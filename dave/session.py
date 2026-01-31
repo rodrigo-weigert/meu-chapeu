@@ -38,6 +38,11 @@ class CommitTransition(Transition):
     data: bytes
 
 
+@dataclass(frozen=True)
+class DowngradeTransition(Transition):
+    pass
+
+
 class DaveSessionManager:
     _dave_session: openmls_dave.DaveSession
     _key_ratchet: crypto.KeyRatchet | None
@@ -76,13 +81,17 @@ class DaveSessionManager:
         match self._pending_transition:
             case WelcomeTransition(data=welcome_data, external_sender=es):
                 self._dave_session.init_mls_group(es.identity, es.signature, welcome_data)
+                self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
                 self._group_is_established = True
             case CommitTransition():
-                pass
+                self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
+            case DowngradeTransition():
+                self._key_ratchet = None
+                self._nonce = 0
+                self._group_is_established = False
             case _:
-                raise DaveException(f"Unsupported transition type: {self._pending_transition}")
+                raise DaveException(f"Unsupported transition: {self._pending_transition}")
 
-        self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
         self._pending_transition = None
 
     def get_current_media_key(self) -> MediaKey | None:
@@ -109,6 +118,9 @@ class DaveSessionManager:
         assert self._external_sender is not None
         self._pending_transition = CommitTransition(transition_id=transition_id, data=commit)
         self._dave_session.merge_commit(commit)
+
+    def stage_downgrade_transition(self, transition_id: int):
+        self._pending_transition = DowngradeTransition(transition_id)
 
     def _get_and_advance_nonce(self) -> Tuple[int, int]:
         current_nonce = self._nonce & 0xFFFFFFFF

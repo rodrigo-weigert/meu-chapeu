@@ -35,6 +35,7 @@ class VoiceOpCode(Enum):
         return cls.UNKNOWN
 
 
+# TODO: improve this class and how it is used
 class VoiceEvent:
     opcode: VoiceOpCode
     name: str | None

@@ -17,6 +17,7 @@ class OpCode(Enum):
     HEARTBEAT_ACK = 11
 
 
+# TODO: improve this class and how it is used
 class Event:
     opcode: OpCode
     name: str | None

@@ -271,6 +271,16 @@ class VoiceClient:
         await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
         logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
+    def _handle_dave_prepare_transition(self, event: VoiceEvent):
+        transition_id = event.get("transition_id")
+        protocol_version = event.get("protocol_version")
+        logger.log("IN", f"DAVE PREPARE TRANSITION (transition_id = {transition_id}, protocol_version = {protocol_version})")
+
+        if protocol_version == 0:
+            self._dave_session_manager.stage_downgrade_transition(transition_id)
+        else:
+            raise NotImplementedError("No support for DAVE upgrade transitions")
+
     async def _receive_loop(self):
         while True:
             try:
@@ -306,6 +316,8 @@ class VoiceClient:
                     asyncio.create_task(self._handle_dave_mls_proposals(event))
                 case VoiceOpCode.DAVE_MLS_ANNOUNCE_COMMIT_TRANSITION:
                     await self._handle_dave_mls_announce_commit_transition(event)
+                case VoiceOpCode.DAVE_PREPARE_TRANSITION:
+                    self._handle_dave_prepare_transition(event)
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
