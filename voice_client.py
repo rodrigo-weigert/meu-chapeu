@@ -235,7 +235,7 @@ class VoiceClient:
 
         if transition_id == 0:  # Initial group creation - may need the same logic for opcode 29 (DAVE_MLS_ANNOUNCE_COMMIT_TRANSITION)
             self._dave_session_manager.execute_transition(0)
-            logger.info("DAVE transition successfully executed (initial group creation - skipped waiting for DAVE_EXECUTE_TRANSITION)")
+            logger.info("DAVE transition successfully executed (initial group creation - immediate transition)")
             self._dave_session_ready.set()
         else:
             await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
@@ -284,8 +284,13 @@ class VoiceClient:
 
         if protocol_version == 0:
             self._dave_session_manager.stage_downgrade_transition(transition_id)
+        elif protocol_version == 1:
+            if transition_id == 0:
+                logger.info("DAVE sole member reset")
+            else:
+                raise NotImplementedError("No support for preparing DAVE transitions to protocol version 1 except for sole member resets")
         else:
-            raise NotImplementedError("No support for DAVE upgrade transitions")
+            raise NotImplementedError("No support for DAVE transitions to versions higher than 1")
 
     async def _handle_dave_prepare_epoch(self, event: VoiceEvent):
         dave_version = event.get("protocol_version")
@@ -295,7 +300,8 @@ class VoiceClient:
         if dave_version != 1:
             raise NotImplementedError(f"No support for transition to DAVE protocol version {dave_version}")
 
-        if epoch == 1:
+        if epoch == 1:  # Either upgrade from transport-only, or sole member reset
+            self._dave_session_manager.reset_session()
             await self._send_key_package()
 
     async def _receive_loop(self):

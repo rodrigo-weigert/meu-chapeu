@@ -88,10 +88,7 @@ class DaveSessionManager:
             case CommitTransition():
                 self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
             case DowngradeTransition():
-                self._dave_session = openmls_dave.DaveSession(self._user_id)
                 self._key_ratchet = None
-                self._external_sender = None
-                self._nonce = 0
             case _:
                 raise DaveException(f"Unsupported transition: {self._pending_transition}")
 
@@ -124,6 +121,11 @@ class DaveSessionManager:
 
     def stage_downgrade_transition(self, transition_id: int):
         self._pending_transition = DowngradeTransition(transition_id)
+
+    def reset_session(self):
+        self._dave_session = openmls_dave.DaveSession(self._user_id)
+        self._key_ratchet = None
+        self._nonce = 0
 
     def _get_and_advance_nonce(self) -> Tuple[int, int]:
         current_nonce = self._nonce & 0xFFFFFFFF
