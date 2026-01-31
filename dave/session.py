@@ -44,6 +44,7 @@ class DowngradeTransition(Transition):
 
 
 class DaveSessionManager:
+    _user_id: str
     _dave_session: openmls_dave.DaveSession
     _key_ratchet: crypto.KeyRatchet | None
     _external_sender: ExternalSender | None
@@ -51,6 +52,7 @@ class DaveSessionManager:
     _pending_transition: Transition | None
 
     def __init__(self, user_id: str):
+        self._user_id = user_id
         self._dave_session = openmls_dave.DaveSession(user_id)
         self._key_ratchet = None
         self._external_sender = None
@@ -86,6 +88,7 @@ class DaveSessionManager:
             case CommitTransition():
                 self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
             case DowngradeTransition():
+                self._dave_session = openmls_dave.DaveSession(self._user_id)
                 self._key_ratchet = None
                 self._external_sender = None
                 self._nonce = 0

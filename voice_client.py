@@ -129,6 +129,11 @@ class VoiceClient:
         logger.log("OUT", f"IDENTIFY guild_id = {self._guild_id}")
         await self._send(VoiceOpCode.IDENTIFY, data)
 
+    async def _send_key_package(self):
+        key_package = self._dave_session_manager.get_key_package_message()
+        await self._send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
+        logger.log("OUT", "DAVE MLS KEY PACKAGE")
+
     async def _handle_hello(self, event: VoiceEvent):
         logger.log("IN", f"HELLO {event}")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
@@ -205,9 +210,7 @@ class VoiceClient:
         logger.log("OUT", f"SPEAKING {speaking_payload}")
 
         if event.get("dave_protocol_version") > 0:
-            key_package = self._dave_session_manager.get_key_package_message()
-            await self._send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
-            logger.log("OUT", "DAVE MLS KEY PACKAGE")
+            await self._send_key_package()
         else:
             self._dave_session_ready.set()
 
@@ -245,9 +248,9 @@ class VoiceClient:
         self._dave_session_manager.execute_transition(transition_id)
         logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
 
-        if self._dave_session_manager.dave_session_is_established():
-            self._dave_session_ready.set()
-        else:
+        if self._dave_session_manager.dave_session_is_established():  # Welcome or commit transition
+            self._dave_session_ready.set()  # only useful on voice session start
+        else:                                                         # Downgrade transition
             self._external_sender_ready.clear()
 
     async def _handle_dave_mls_proposals(self, event: VoiceEvent):
@@ -284,6 +287,17 @@ class VoiceClient:
         else:
             raise NotImplementedError("No support for DAVE upgrade transitions")
 
+    async def _handle_dave_prepare_epoch(self, event: VoiceEvent):
+        dave_version = event.get("protocol_version")
+        epoch = event.get("epoch")
+        logger.log("IN", f"DAVE PREPARE EPOCH (dave_version = {dave_version}, epoch = {epoch})")
+
+        if dave_version != 1:
+            raise NotImplementedError(f"No support for transition to DAVE protocol version {dave_version}")
+
+        if epoch == 1:
+            await self._send_key_package()
+
     async def _receive_loop(self):
         while True:
             try:
@@ -300,6 +314,7 @@ class VoiceClient:
 
             if event.seq_num:
                 self._last_seq = event.seq_num
+
             match event.opcode:
                 case VoiceOpCode.HELLO:
                     asyncio.create_task(self._handle_hello(event))
@@ -321,6 +336,8 @@ class VoiceClient:
                     await self._handle_dave_mls_announce_commit_transition(event)
                 case VoiceOpCode.DAVE_PREPARE_TRANSITION:
                     self._handle_dave_prepare_transition(event)
+                case VoiceOpCode.DAVE_PREPARE_EPOCH:
+                    await self._handle_dave_prepare_epoch(event)
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
