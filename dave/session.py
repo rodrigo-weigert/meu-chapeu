@@ -1,5 +1,5 @@
 import crypto
-import openmls_dave
+import openmls_dave  # type: ignore[import-untyped]
 
 from dataclasses import dataclass
 from enum import Enum, unique, auto
@@ -22,18 +22,20 @@ class DaveException(Exception):
     pass
 
 
-@unique
-class TransitionType(Enum):
-    WELCOME = auto()
-    COMMIT = auto()
+@dataclass(frozen=True)
+class Transition:
+    transition_id: int
 
 
 @dataclass(frozen=True)
-class Transition:
-    transition_type: TransitionType
-    transition_id: int
-    external_sender: ExternalSender
-    mls_data: bytes
+class WelcomeTransition(Transition):
+    data: bytes
+    external_sender: ExternalSender  # TODO: this attribute is probably unnecessary - remove and simplify ES logic
+
+
+@dataclass(frozen=True)
+class CommitTransition(Transition):
+    data: bytes
 
 
 class DaveSessionManager:
@@ -62,23 +64,23 @@ class DaveSessionManager:
         if self._external_sender is None:
             raise DaveException(f"Cannot stage welcome transition with id {transition_id}: missing external sender")
 
-        self._pending_transition = Transition(TransitionType.WELCOME, transition_id, self._external_sender, welcome)
+        self._pending_transition = WelcomeTransition(transition_id=transition_id, data=welcome, external_sender=self._external_sender)
 
     def execute_transition(self, transition_id: int):
         if self._pending_transition is None:
             raise DaveException("No pending transition to execute")
 
         if transition_id != self._pending_transition.transition_id:
-            raise DaveException(f"Tried to execute unexpected transition with id {transition_id}. Pending transition id was {self._pending_transition.transition_id}")
+            raise DaveException(f"Tried to execute unexpected transition with id {transition_id}. Pending transition was {self._pending_transition}")
 
-        match self._pending_transition.transition_type:
-            case TransitionType.WELCOME:
-                self._dave_session.init_mls_group(self._pending_transition.external_sender.identity, self._pending_transition.external_sender.signature, self._pending_transition.mls_data)
+        match self._pending_transition:
+            case WelcomeTransition(data=welcome_data, external_sender=es):
+                self._dave_session.init_mls_group(es.identity, es.signature, welcome_data)
                 self._group_is_established = True
-            case TransitionType.COMMIT:
+            case CommitTransition():
                 pass
             case _:
-                raise DaveException(f"Unsupported transition type: {self._pending_transition.transition_type}")
+                raise DaveException(f"Unsupported transition type: {self._pending_transition}")
 
         self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
         self._pending_transition = None
@@ -105,7 +107,7 @@ class DaveSessionManager:
 
     def stage_transition_from_commit(self, transition_id: int, commit: bytes):
         assert self._external_sender is not None
-        self._pending_transition = Transition(TransitionType.COMMIT, transition_id, self._external_sender, commit)
+        self._pending_transition = CommitTransition(transition_id=transition_id, data=commit)
         self._dave_session.merge_commit(commit)
 
     def _get_and_advance_nonce(self) -> Tuple[int, int]:
