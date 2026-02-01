@@ -7,6 +7,7 @@ import threading
 
 from typing import Tuple, List
 from logs import logger as base_logger
+from dave.session import DaveSessionManager, MediaKey
 
 logger = base_logger.bind(context="UDP")
 
@@ -36,19 +37,45 @@ def _rtp_header(ssrc: int, seq: int, timestamp: int) -> bytes:
     return struct.pack(_RTP_HEADER_FORMAT, b'\x80', b'\x78', seq & ((1 << 16) - 1), timestamp & ((1 << 32) - 1), ssrc)
 
 
-def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int, encryption_key: bytes, nonce: int, encryption_mode: str) -> bytes:
+def _to_uleb128(val: int) -> bytes:
+    result = b''
+    while val >= 0x80:
+        result += (0x80 | (val & 0x7F)).to_bytes(length=1)
+        val >>= 7
+    result += val.to_bytes(length=1)
+    return result
+
+
+def _build_dave_payload(payload: bytes, media_key: MediaKey) -> bytes:
+    ciphertext, tag = crypto.encrypt_dave(payload, media_key.nonce, media_key.key)
+    nonce_uleb128 = _to_uleb128(media_key.nonce)
+    supplemental_data_size = len(tag) + len(nonce_uleb128) + 3
+    return ciphertext + tag + nonce_uleb128 + supplemental_data_size.to_bytes(length=1) + b'\xFA\xFA'
+
+
+def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int,
+                        encryption_key: bytes, nonce: int, encryption_mode: str,
+                        dave: DaveSessionManager) -> bytes:
     header = _rtp_header(ssrc, sequence, timestamp)
-    encrypted_payload = crypto.encrypt_packet(header, payload, nonce, encryption_key, encryption_mode)
-    return header + encrypted_payload + nonce.to_bytes(4, "little")
+
+    media_key = dave.get_current_media_key()
+    if media_key is not None:
+        payload = _build_dave_payload(payload, media_key)
+
+    trunc_nonce = nonce & 0xFFFFFFFF
+    encrypted_payload = crypto.encrypt_packet(header, payload, trunc_nonce, encryption_key, encryption_mode)
+    return header + encrypted_payload + trunc_nonce.to_bytes(4, "little")
 
 
-def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int, initial_seq: int, encryption_key: List[int], nonce: int, encryption_mode: str, stop_event: threading.Event) -> int:
+def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int,
+                 initial_seq: int, encryption_key: List[int], nonce: int,
+                 encryption_mode: str, stop_event: threading.Event, dave: DaveSessionManager) -> int:
     logger.info("Starting audio stream")
 
     ts = random.getrandbits(32)  # TODO: should be voice client state
     k = bytes(encryption_key)
 
-    packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode) for (i, payload) in enumerate(audio_payloads))
+    packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode, dave) for (i, payload) in enumerate(audio_payloads))
 
     now = time.perf_counter()
     next_time = now + 0.02

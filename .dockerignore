@@ -8,4 +8,5 @@ __pycache__/
 .git
 .vscode
 meu-chapeu-env/
+dave/openmls/target
 TODO.txt
