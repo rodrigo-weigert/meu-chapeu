@@ -103,7 +103,7 @@ class VoiceClient:
         # TODO have logger.log("OUT",...) only here and remove all others?
 
     async def _send_binary(self, op: VoiceOpCode, data: bytes):
-        await self._ws.send(op.value.to_bytes(1) + data)
+        await self._ws.send(op.value.to_bytes(length=1) + data)
 
     async def _send_heartbeat(self, nonce: int):
         await self._send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,

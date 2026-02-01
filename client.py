@@ -124,8 +124,6 @@ class Client:
             self.http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
             return
 
-        # logger.info("Not playing song after joining voice channel (forced return for testing)")
-
         search_query = event.get("data")["options"][0]["value"]
         media = youtube.get_video_from_user_query(search_query, self.config)
 

@@ -22,10 +22,10 @@ class _ParseLengthHeader(Adapter):
                     "remaining_bytes": None}
         elif obj < (1 << 14):
             return {"first_byte": (obj >> 8) | 0x40,
-                    "remaining_bytes": (obj & ((1 << 8) - 1)).to_bytes()}
+                    "remaining_bytes": (obj & ((1 << 8) - 1)).to_bytes(length=1)}
         elif obj < (1 << 30):
             return {"first_byte": (obj >> 24) | 0x80,
-                    "remaining_bytes": (obj & ((1 << 24) - 1)).to_bytes(length=3)}
+                    "remaining_bytes": (obj & ((1 << 24) - 1)).to_bytes(length=3, byteorder="big")}
 
         raise ValueError("Length exceeds Vector limit")
 

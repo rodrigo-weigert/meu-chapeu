@@ -4,7 +4,6 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDFExpand
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-
 from dave.parser import KDFLabel
 
 from typing import Tuple
@@ -41,7 +40,7 @@ def encrypt_dave(payload: bytes, nonce: int, key: bytes) -> Tuple[bytes, bytes]:
 
 def _derive_tree_secret(secret: bytes, label: str, generation: int, length: int) -> bytes:
     label_bytes = b"MLS 1.0 " + label.encode("ascii")
-    context_bytes = generation.to_bytes(length=4)
+    context_bytes = generation.to_bytes(length=4, byteorder="little")
     kdf_label = KDFLabel.build({"length": length, "label": label_bytes, "context": context_bytes})
     return HKDFExpand(algorithm=hashes.SHA256(), length=length, info=kdf_label).derive(secret)
 

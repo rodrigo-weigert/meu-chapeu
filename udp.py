@@ -40,9 +40,9 @@ def _rtp_header(ssrc: int, seq: int, timestamp: int) -> bytes:
 def _to_uleb128(val: int) -> bytes:
     result = b''
     while val >= 0x80:
-        result += (0x80 | (val & 0x7F)).to_bytes()
+        result += (0x80 | (val & 0x7F)).to_bytes(length=1)
         val >>= 7
-    result += val.to_bytes(length=1, byteorder="big")  # TODO remove unnecessary args?
+    result += val.to_bytes(length=1)
     return result
 
 
@@ -50,7 +50,7 @@ def _build_dave_payload(payload: bytes, media_key: MediaKey) -> bytes:
     ciphertext, tag = crypto.encrypt_dave(payload, media_key.nonce, media_key.key)
     nonce_uleb128 = _to_uleb128(media_key.nonce)
     supplemental_data_size = len(tag) + len(nonce_uleb128) + 3
-    return ciphertext + tag + nonce_uleb128 + supplemental_data_size.to_bytes(length=1, byteorder="big") + b'\xFA\xFA'
+    return ciphertext + tag + nonce_uleb128 + supplemental_data_size.to_bytes(length=1) + b'\xFA\xFA'
 
 
 def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int,
