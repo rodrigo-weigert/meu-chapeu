@@ -22,6 +22,10 @@ class DaveException(Exception):
     pass
 
 
+class DaveInvalidCommitException(DaveException):
+    pass
+
+
 @unique
 class TransitionType(Enum):
     WELCOME = auto()
@@ -98,7 +102,12 @@ class DaveSessionManager:
 
     def stage_transition_from_commit(self, transition_id: int, commit: bytes):
         assert self._external_sender is not None
-        self._dave_session.merge_commit(commit)
+
+        try:
+            self._dave_session.merge_commit(commit)
+        except openmls_dave.DaveInvalidCommit as e:
+            raise DaveInvalidCommitException(str(e)) from None
+
         self._add_transition(transition_id, TransitionType.COMMIT)
 
     def stage_downgrade_transition(self, transition_id: int):

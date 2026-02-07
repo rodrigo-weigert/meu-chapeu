@@ -233,7 +233,7 @@ class VoiceClient:
 
         self._dave_session_manager.stage_transition_from_welcome(transition_id, event.get("welcome_message"))
 
-        if transition_id == 0:  # Initial group creation - may need the same logic for opcode 29 (DAVE_MLS_ANNOUNCE_COMMIT_TRANSITION)
+        if transition_id == 0:  # Initial group creation
             self._dave_session_manager.execute_transition(0)
             logger.info("DAVE transition successfully executed (initial group creation - immediate transition)")
             self._dave_session_ready.set()
@@ -268,10 +268,16 @@ class VoiceClient:
             case _:
                 raise ValueError(f"Unknown DAVE MLS PROPOSALS operation type: {operation_type}")
 
+    # TODO: during initial group creation, there may or may not be scenarios
+    # where this event (opcode 29) is received instead of a welcome (opcode 30)
+    # If that happens, we should execute transition immediately after processing
+    # the commit, which will likely be authored by Meu Chapeu itself (adequate own
+    # commit processing support is a requirement)
     async def _handle_dave_mls_announce_commit_transition(self, event: VoiceEvent):
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE MLS ANNOUNCE COMMIT TRANSITION (transition_id = {transition_id})")
 
+        # TODO: catch invalid commit exception and initiate invalid commit recovery flow
         self._dave_session_manager.stage_transition_from_commit(transition_id, event.get("commit_message"))
 
         await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
