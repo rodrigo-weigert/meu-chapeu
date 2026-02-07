@@ -19,5 +19,5 @@ types-yt-dlp==2025.9.26.20251009
 typing_extensions==4.15.0
 urllib3==2.5.0
 websockets==15.0.1
-yt-dlp==2026.1.29.165626.dev0
+yt-dlp==2026.2.4.233607.dev0
 yt-dlp-ejs==0.4.0
