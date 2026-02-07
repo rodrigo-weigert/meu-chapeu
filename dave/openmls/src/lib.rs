@@ -159,6 +159,10 @@ impl DaveSession {
         }
     }
 
+    fn mls_group_exists(&self) -> bool {
+        self.mls_group.is_some()
+    }
+
     fn get_key_package_message(&self, py: Python<'_>) -> PyObject {
         let bytes_vec = self.key_package_bundle
             .key_package()
