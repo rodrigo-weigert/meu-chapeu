@@ -2,6 +2,7 @@
 #![allow(non_local_definitions)]
 
 use pyo3::prelude::*;
+use pyo3::create_exception;
 use pyo3::types::PyBytes;
 use openmls::{prelude::{*, tls_codec::*}};
 use openmls_rust_crypto::OpenMlsRustCrypto;
@@ -55,6 +56,8 @@ fn deserialize_dave_mls_message(message: &[u8]) -> ProtocolMessage {
             .try_into_protocol_message()
             .expect("Failed to convert incoming message to ProtocolMessage")
 }
+
+create_exception!(openmls_dave, DaveInvalidCommit, pyo3::exceptions::PyException);
 
 #[pyclass]
 pub struct ProcessMessageResult {
@@ -205,8 +208,9 @@ impl DaveSession {
         PyBytes::new(py, &k).into()
     }
 
-    // TODO: per the DAVE protocol, need to reject add proposals when user ID being added is not expected to be in the call,
-    // according to clients_connect (11) and clients_disconnect (13) events
+    //TODO local group should be persisted in the class state, otherwise it can cause problems
+    //during initial group creation: if opcode 29 is received, we'd need to merge the pending local
+    //group commit but would be unable to do so
     fn append_proposals_local_group(&mut self, py: Python<'_>, proposal_message: &[u8], es_identity: &[u8], es_signature: &[u8]) -> Py<ProcessMessageResult> {
         let protocol_message = deserialize_dave_mls_message(proposal_message);
         let group_id = protocol_message.group_id().clone();
@@ -217,33 +221,57 @@ impl DaveSession {
         Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
     }
 
+    // TODO: per the DAVE protocol, need to reject add proposals when user ID being added is not expected to be in the call,
+    // according to clients_connect (11) and clients_disconnect (13) events
     fn append_proposals(&mut self, py: Python<'_>, proposal_message: &[u8]) -> Py<ProcessMessageResult> {
         let (commit_msg, welcome) = self.process_append_proposal_message(deserialize_dave_mls_message(proposal_message), None);
         Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
     }
 
-    fn merge_commit(&mut self, commit_message: &[u8]) {
+    fn merge_commit(&mut self, commit_message: &[u8]) -> PyResult<()> {
         let protocol_message = deserialize_dave_mls_message(commit_message);
-        let processed_message = self.mls_group
+        let process_message_result = self.mls_group
             .as_mut()
             .expect("Cannot process commit message: no MLS group")
-            .process_message(&self.provider, protocol_message)
-            .expect("Failed to process commit message");
+            .process_message(&self.provider, protocol_message);
 
-        let ProcessedMessageContent::StagedCommitMessage(staged_commit) = processed_message.into_content() else {
-                panic!("Message is not a commit");
-        };
+        match process_message_result {
+            Ok(processed_message) => {
+                let ProcessedMessageContent::StagedCommitMessage(staged_commit) = processed_message.into_content() else {
+                        panic!("Message is not a commit");
+                };
 
-        self.mls_group
-            .as_mut()
-            .unwrap()
-            .merge_staged_commit(&self.provider, *staged_commit)
-            .expect("Failed to merge commit");
+                self.mls_group
+                    .as_mut()
+                    .unwrap()
+                    .merge_staged_commit(&self.provider, *staged_commit)
+                    .expect("Failed to merge commit");
+                Ok(())
+            }
+
+            Err(ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit)) => {
+                self.mls_group
+                    .as_mut()
+                    .unwrap()
+                    .merge_pending_commit(&self.provider)
+                    .expect("Failed to merge own commit");
+                Ok(())
+            }
+
+            Err(ProcessMessageError::InvalidCommit(e)) => {
+                Err(DaveInvalidCommit::new_err(e.to_string()))
+            }
+
+            Err(e) => {
+                panic!("Failed to process commit message: {:?}", e)
+            }
+        }
     }
 }
 
 #[pymodule]
-fn openmls_dave(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+fn openmls_dave(py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    m.add("DaveInvalidCommit", py.get_type::<DaveInvalidCommit>())?;
     m.add_class::<ProcessMessageResult>()?;
     m.add_class::<DaveSession>()?;
     Ok(())
