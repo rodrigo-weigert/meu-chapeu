@@ -12,7 +12,7 @@ from config import Config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
-from dave.session import DaveSessionManager
+from dave.session import DaveSessionManager, DaveInvalidCommitException, TransitionType
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -245,13 +245,17 @@ class VoiceClient:
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
 
-        self._dave_session_manager.execute_transition(transition_id)
-        logger.info(f"DAVE transition successfully executed (transition_id = {transition_id})")
+        transition_type = self._dave_session_manager.execute_transition(transition_id)
+        if transition_type is not None:
+            logger.info(f"DAVE transition {transition_id} successfully executed (type = {transition_type})")
+        else:
+            logger.info(f"DAVE transition {transition_id} ignored")
+            return
 
-        if self._dave_session_manager.dave_session_is_established():  # Welcome or commit transition
-            self._dave_session_ready.set()  # only useful on voice session start
-        else:                                                         # Downgrade transition
+        if transition_type == TransitionType.DOWNGRADE:
             self._external_sender_ready.clear()
+        else:
+            self._dave_session_ready.set()
 
     async def _handle_dave_mls_proposals(self, event: VoiceEvent):
         operation_type = event.get("operation_type")
@@ -260,13 +264,28 @@ class VoiceClient:
         match operation_type:
             case 0:  # Append
                 await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
+
                 commit_welcome_message = self._dave_session_manager.append_proposals(event.get("proposal_messages"))
-                await self._send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
-                logger.log("OUT", "DAVE MLS COMMIT WELCOME")
+
+                if commit_welcome_message is not None:
+                    await self._send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
+                    logger.log("OUT", "DAVE MLS COMMIT WELCOME")
+                else:
+                    logger.info("Proposal processing skipped")
             case 1:  # Revoke
                 raise NotImplementedError("No support for revoking proposals")
             case _:
                 raise ValueError(f"Unknown DAVE MLS PROPOSALS operation type: {operation_type}")
+
+    async def _invalid_commit_recovery(self, transition_id: int):
+        logger.warning("Received invalid commit, starting recovery flow")
+
+        self._dave_session_manager.reset_session()
+
+        await self._send(VoiceOpCode.DAVE_MLS_INVALID_COMMIT_WELCOME, {"transition_id": transition_id})
+        logger.log("OUT", f"DAVE MLS INVALID COMMIT WELCOME (transition_id = {transition_id})")
+
+        await self._send_key_package()
 
     # TODO: during initial group creation, there may or may not be scenarios
     # where this event (opcode 29) is received instead of a welcome (opcode 30)
@@ -277,8 +296,11 @@ class VoiceClient:
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE MLS ANNOUNCE COMMIT TRANSITION (transition_id = {transition_id})")
 
-        # TODO: catch invalid commit exception and initiate invalid commit recovery flow
-        self._dave_session_manager.stage_transition_from_commit(transition_id, event.get("commit_message"))
+        try:
+            self._dave_session_manager.stage_transition_from_commit(transition_id, event.get("commit_message"))
+        except DaveInvalidCommitException:
+            await self._invalid_commit_recovery(transition_id)
+            return
 
         await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
         logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")

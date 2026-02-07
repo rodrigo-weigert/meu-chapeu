@@ -47,6 +47,7 @@ class DaveSessionManager:
     _external_sender: ExternalSender | None
     _nonce: int
     _pending_transitions: Dict[int, Transition]
+    _invalidated: bool
 
     def __init__(self, user_id: str):
         self._user_id = user_id
@@ -55,9 +56,7 @@ class DaveSessionManager:
         self._external_sender = None
         self._nonce = 0
         self._pending_transitions = dict()
-
-    def dave_session_is_established(self) -> bool:
-        return self._key_ratchet is not None
+        self._invalidated = False
 
     def get_key_package_message(self) -> bytes:
         return self._dave_session.get_key_package_message()
@@ -72,13 +71,21 @@ class DaveSessionManager:
         self._dave_session.init_mls_group(self._external_sender.identity, self._external_sender.signature, welcome)
         self._add_transition(transition_id, TransitionType.WELCOME)
 
-    def execute_transition(self, transition_id: int):
+    def execute_transition(self, transition_id: int) -> TransitionType | None:
         transition = self._pending_transitions.pop(transition_id, None)
 
         if transition is None:
-            raise DaveException(f"No pending transition with id {transition_id}")
+            return None
+
+        if self._invalidated and transition.type != TransitionType.WELCOME:
+            return None
 
         self._key_ratchet = transition.key_ratchet
+
+        if transition.type == TransitionType.WELCOME:
+            self._invalidated = False
+
+        return transition.type
 
     def get_current_media_key(self) -> MediaKey | None:
         kr = self._key_ratchet
@@ -88,8 +95,11 @@ class DaveSessionManager:
         nonce, generation = self._get_and_advance_nonce()
         return MediaKey(key=kr.get(generation), nonce=nonce)
 
-    def append_proposals(self, proposal_message: bytes) -> bytes:
-        if self.dave_session_is_established():
+    def append_proposals(self, proposal_message: bytes) -> bytes | None:
+        if self._invalidated:
+            return None
+
+        if self._dave_session.mls_group_exists():
             result = self._dave_session.append_proposals(proposal_message)
         elif self._external_sender is not None:  # Initial group creation
             result = self._dave_session.append_proposals_local_group(proposal_message, self._external_sender.identity, self._external_sender.signature)
@@ -106,6 +116,7 @@ class DaveSessionManager:
         try:
             self._dave_session.merge_commit(commit)
         except openmls_dave.DaveInvalidCommit as e:
+            self._invalidated = True
             raise DaveInvalidCommitException(str(e)) from None
 
         self._add_transition(transition_id, TransitionType.COMMIT)
@@ -115,7 +126,6 @@ class DaveSessionManager:
 
     def reset_session(self):
         self._dave_session = openmls_dave.DaveSession(self._user_id)
-        self._key_ratchet = None
         self._nonce = 0
         self._pending_transitions.clear()
 
@@ -129,5 +139,5 @@ class DaveSessionManager:
         return KeyRatchet(self._dave_session.export_base_sender_key())
 
     def _add_transition(self, transition_id: int, transition_type: TransitionType):
-        kr = self._key_ratchet_from_current_state() if transition_type is not TransitionType.DOWNGRADE else None
+        kr = self._key_ratchet_from_current_state() if transition_type != TransitionType.DOWNGRADE else None
         self._pending_transitions[transition_id] = Transition(transition_id, transition_type, kr)
