@@ -71,7 +71,7 @@ class HttpClient:
         if success:
             logger.log("IN", f"INTERACTION {id} RESPONSE SUCCESSFUL, STATUS {resp.status_code}")
         else:
-            logger.warning("IN", f"INTERACTION {id} RESPONSE ERROR, STATUS {resp.status_code}, BODY: {resp.json()}")
+            logger.warning(f"INTERACTION {id} RESPONSE ERROR, STATUS {resp.status_code}, BODY: {resp.json()}")
 
         return success
 
