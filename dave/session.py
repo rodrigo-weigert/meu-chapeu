@@ -1,9 +1,9 @@
-import crypto
 import openmls_dave  # type: ignore[import-untyped]
 
-from dataclasses import dataclass
+from crypto import KeyRatchet
+from dataclasses import dataclass, field
 from enum import Enum, unique, auto
-from typing import Tuple
+from typing import Tuple, Dict
 
 
 @dataclass(frozen=True)
@@ -22,34 +22,27 @@ class DaveException(Exception):
     pass
 
 
+@unique
+class TransitionType(Enum):
+    WELCOME = auto()
+    COMMIT = auto()
+    DOWNGRADE = auto()
+
+
 @dataclass(frozen=True)
 class Transition:
-    transition_id: int
-
-
-@dataclass(frozen=True)
-class WelcomeTransition(Transition):
-    data: bytes
-    external_sender: ExternalSender  # TODO: this attribute is probably unnecessary - remove and simplify ES logic
-
-
-@dataclass(frozen=True)
-class CommitTransition(Transition):
-    data: bytes
-
-
-@dataclass(frozen=True)
-class DowngradeTransition(Transition):
-    pass
+    id: int
+    type: TransitionType
+    key_ratchet: KeyRatchet | None = field(repr=False)
 
 
 class DaveSessionManager:
     _user_id: str
     _dave_session: openmls_dave.DaveSession
-    _key_ratchet: crypto.KeyRatchet | None
+    _key_ratchet: KeyRatchet | None
     _external_sender: ExternalSender | None
     _nonce: int
-    _pending_transition: Transition | None
+    _pending_transitions: Dict[int, Transition]
 
     def __init__(self, user_id: str):
         self._user_id = user_id
@@ -57,7 +50,7 @@ class DaveSessionManager:
         self._key_ratchet = None
         self._external_sender = None
         self._nonce = 0
-        self._pending_transition = None
+        self._pending_transitions = dict()
 
     def dave_session_is_established(self) -> bool:
         return self._key_ratchet is not None
@@ -72,27 +65,16 @@ class DaveSessionManager:
         if self._external_sender is None:
             raise DaveException(f"Cannot stage welcome transition with id {transition_id}: missing external sender")
 
-        self._pending_transition = WelcomeTransition(transition_id=transition_id, data=welcome, external_sender=self._external_sender)
+        self._dave_session.init_mls_group(self._external_sender.identity, self._external_sender.signature, welcome)
+        self._add_transition(transition_id, TransitionType.WELCOME)
 
     def execute_transition(self, transition_id: int):
-        if self._pending_transition is None:
-            raise DaveException("No pending transition to execute")
+        transition = self._pending_transitions.pop(transition_id, None)
 
-        if transition_id != self._pending_transition.transition_id:
-            raise DaveException(f"Tried to execute unexpected transition with id {transition_id}. Pending transition was {self._pending_transition}")
+        if transition is None:
+            raise DaveException(f"No pending transition with id {transition_id}")
 
-        match self._pending_transition:
-            case WelcomeTransition(data=welcome_data, external_sender=es):
-                self._dave_session.init_mls_group(es.identity, es.signature, welcome_data)
-                self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
-            case CommitTransition():
-                self._key_ratchet = crypto.KeyRatchet(self._dave_session.export_base_sender_key())
-            case DowngradeTransition():
-                self._key_ratchet = None
-            case _:
-                raise DaveException(f"Unsupported transition: {self._pending_transition}")
-
-        self._pending_transition = None
+        self._key_ratchet = transition.key_ratchet
 
     def get_current_media_key(self) -> MediaKey | None:
         kr = self._key_ratchet
@@ -116,19 +98,27 @@ class DaveSessionManager:
 
     def stage_transition_from_commit(self, transition_id: int, commit: bytes):
         assert self._external_sender is not None
-        self._pending_transition = CommitTransition(transition_id=transition_id, data=commit)
         self._dave_session.merge_commit(commit)
+        self._add_transition(transition_id, TransitionType.COMMIT)
 
     def stage_downgrade_transition(self, transition_id: int):
-        self._pending_transition = DowngradeTransition(transition_id)
+        self._add_transition(transition_id, TransitionType.DOWNGRADE)
 
     def reset_session(self):
         self._dave_session = openmls_dave.DaveSession(self._user_id)
         self._key_ratchet = None
         self._nonce = 0
+        self._pending_transitions.clear()
 
     def _get_and_advance_nonce(self) -> Tuple[int, int]:
         current_nonce = self._nonce & 0xFFFFFFFF
         current_gen = self._nonce >> 24
         self._nonce += 1
         return current_nonce, current_gen
+
+    def _key_ratchet_from_current_state(self) -> KeyRatchet:
+        return KeyRatchet(self._dave_session.export_base_sender_key())
+
+    def _add_transition(self, transition_id: int, transition_type: TransitionType):
+        kr = self._key_ratchet_from_current_state() if transition_type is not TransitionType.DOWNGRADE else None
+        self._pending_transitions[transition_id] = Transition(transition_id, transition_type, kr)
