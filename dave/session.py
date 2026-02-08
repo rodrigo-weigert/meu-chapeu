@@ -68,7 +68,7 @@ class DaveSessionManager:
         if self._external_sender is None:
             raise DaveException(f"Cannot stage welcome transition with id {transition_id}: missing external sender")
 
-        self._dave_session.init_mls_group(self._external_sender.identity, self._external_sender.signature, welcome)
+        self._dave_session.create_group_from_welcome(self._external_sender.identity, self._external_sender.signature, welcome)
         self._add_transition(transition_id, TransitionType.WELCOME)
 
     def execute_transition(self, transition_id: int) -> TransitionType | None:
@@ -102,7 +102,7 @@ class DaveSessionManager:
         if self._dave_session.mls_group_exists():
             result = self._dave_session.append_proposals(proposal_message)
         elif self._external_sender is not None:  # Initial group creation
-            result = self._dave_session.append_proposals_local_group(proposal_message, self._external_sender.identity, self._external_sender.signature)
+            result = self._dave_session.create_group_and_append_proposals(proposal_message, self._external_sender.identity, self._external_sender.signature)
         else:
             raise DaveException("Cannot process proposals using local MLS group: missing external sender")
 
