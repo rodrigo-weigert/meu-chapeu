@@ -233,9 +233,9 @@ class VoiceClient:
 
         self._dave_session_manager.stage_transition_from_welcome(transition_id, event.get("welcome_message"))
 
-        if transition_id == 0:  # Initial group creation
+        if transition_id == 0:
             self._dave_session_manager.execute_transition(0)
-            logger.info("DAVE transition successfully executed (initial group creation - immediate transition)")
+            logger.info("DAVE transition successfully executed (initial group creation - immediate transition from welcome)")
             self._dave_session_ready.set()
         else:
             await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
@@ -302,8 +302,13 @@ class VoiceClient:
             await self._invalid_commit_recovery(transition_id)
             return
 
-        await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
-        logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
+        if transition_id == 0:
+            self._dave_session_manager.execute_transition(0)
+            logger.info("DAVE transition successfully executed (initial group creation - immediate transition from own commit)")
+            self._dave_session_ready.set()
+        else:
+            await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
+            logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
     def _handle_dave_prepare_transition(self, event: VoiceEvent):
         transition_id = event.get("transition_id")

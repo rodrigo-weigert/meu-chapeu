@@ -88,14 +88,15 @@ pub struct DaveSession {
 }
 
 impl DaveSession {
-    fn create_local_group(&self, group_id: GroupId, external_sender: ExternalSender) -> MlsGroup {
+    fn create_group(&mut self, group_id: GroupId, external_sender: ExternalSender) {
         let credential_with_key = CredentialWithKey {
             credential: self.credential.clone(),
             signature_key: self.signature_keys.public().into()
         };
 
-        MlsGroup::builder()
+        self.mls_group = Some(MlsGroup::builder()
             .with_group_id(group_id)
+            .with_wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
             .use_ratchet_tree_extension(true)
             .with_capabilities(get_dave_capabilities())
             .ciphersuite(CIPHERSUITE)
@@ -104,11 +105,13 @@ impl DaveSession {
             .with_leaf_node_extensions(Extensions::empty())
             .expect("Failed to set local MLS group leaf node extensions")
             .build(&self.provider, &self.signature_keys, credential_with_key)
-            .expect("Failed to create local MLS group")
+            .expect("Failed to create local MLS group"));
     }
 
-    fn process_append_proposal_message(&mut self, message: ProtocolMessage, mls_group: Option<&mut MlsGroup>) -> (MlsMessageOut, Option<Welcome>) { 
-        let group = mls_group.unwrap_or_else(|| self.mls_group.as_mut().expect("No MLS group to process message"));
+    fn process_append_proposal_message(&mut self, message: ProtocolMessage) -> (MlsMessageOut, Option<Welcome>) {
+        let group = self.mls_group
+            .as_mut()
+            .expect("Cannot process proposal message: no MLS group");
 
         let processed_message = group
             .process_message(&self.provider, message)
@@ -174,7 +177,7 @@ impl DaveSession {
         PyBytes::new(py, &bytes_vec).into()
     }
 
-    fn init_mls_group(&mut self, external_sender_identity: &[u8], external_sender_signature: &[u8], welcome: &[u8]) { 
+    fn create_group_from_welcome(&mut self, external_sender_identity: &[u8], external_sender_signature: &[u8], welcome: &[u8]) {
         //TODO (protocol check): external sender in welcome message must match this one
         let _external_sender = ExternalSender::new(SignaturePublicKey::from(external_sender_signature), BasicCredential::new(external_sender_identity.to_vec()).into());
 
@@ -209,30 +212,25 @@ impl DaveSession {
     fn export_base_sender_key(&self, py: Python<'_>) -> PyObject {
         let k = self.mls_group
             .as_ref()
-            .expect("MlsGroup not found - make sure to initialize the group with init_mls_group")
+            .expect("MlsGroup not found")
             .export_secret(self.provider.crypto(), "Discord Secure Frames v0", &self.user_id.to_le_bytes(), 16)
             .expect("Failed to export secret");
         PyBytes::new(py, &k).into()
     }
 
-    //TODO local group should be persisted in the class state, otherwise it can cause problems
-    //during initial group creation: if opcode 29 is received, we'd need to merge the pending local
-    //group commit but would be unable to do so
-    fn append_proposals_local_group(&mut self, py: Python<'_>, proposal_message: &[u8], es_identity: &[u8], es_signature: &[u8]) -> Py<ProcessMessageResult> {
-        let protocol_message = deserialize_dave_mls_message(proposal_message);
-        let group_id = protocol_message.group_id().clone();
-        let external_sender = ExternalSender::new(SignaturePublicKey::from(es_signature), BasicCredential::new(es_identity.to_vec()).into());
-
-        let (commit_msg, welcome) = self.process_append_proposal_message(protocol_message, Some(&mut self.create_local_group(group_id, external_sender)));
-
-        Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
-    }
-
     // TODO: per the DAVE protocol, need to reject add proposals when user ID being added is not expected to be in the call,
     // according to clients_connect (11) and clients_disconnect (13) events
     fn append_proposals(&mut self, py: Python<'_>, proposal_message: &[u8]) -> Py<ProcessMessageResult> {
-        let (commit_msg, welcome) = self.process_append_proposal_message(deserialize_dave_mls_message(proposal_message), None);
+        let (commit_msg, welcome) = self.process_append_proposal_message(deserialize_dave_mls_message(proposal_message));
         Py::new(py, ProcessMessageResult::new(&py, commit_msg, welcome)).expect("Failed to create Py<ProcessMessageResult>")
+    }
+
+    fn create_group_and_append_proposals(&mut self, py: Python<'_>, proposal_message: &[u8], es_identity: &[u8], es_signature: &[u8]) -> Py<ProcessMessageResult> {
+        let protocol_message = deserialize_dave_mls_message(proposal_message);
+        let external_sender = ExternalSender::new(SignaturePublicKey::from(es_signature), BasicCredential::new(es_identity.to_vec()).into());
+
+        self.create_group(protocol_message.group_id().clone(), external_sender);
+        self.append_proposals(py, proposal_message)
     }
 
     fn merge_commit(&mut self, commit_message: &[u8]) -> PyResult<()> {
