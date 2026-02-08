@@ -119,6 +119,9 @@ impl DaveSession {
                 .expect("Failed to store proposal");
         }
 
+        group.clear_pending_commit(self.provider.storage())
+            .expect("Failed to clear pending commit before generating new one");
+
         let (commit_msg, welcome_msg, _group_info) = group.commit_to_pending_proposals(&self.provider, &self.signature_keys)
             .expect("Failed to commit proposals");
 
