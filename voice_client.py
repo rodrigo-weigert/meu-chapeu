@@ -45,7 +45,16 @@ class VoiceClient:
     _transport_encryption_key: List[int]
     _recv_loop: asyncio.Task
 
-    def __init__(self, guild_id: str, channel_id: str, url: str, session_id: str, token: str, on_close: Callable[[], Awaitable[Any]], config: Config):
+    def __init__(
+        self,
+        guild_id: str,
+        channel_id: str,
+        url: str,
+        session_id: str,
+        token: str,
+        on_close: Callable[[], Awaitable[Any]],
+        config: Config,
+    ) -> None:
         self._guild_id = guild_id
         self._channel_id = channel_id
         self._url = f"wss://{url}?v=8"
@@ -70,14 +79,14 @@ class VoiceClient:
         self._external_sender_ready = asyncio.Event()
 
     @property
-    def channel_id(self):
+    def channel_id(self) -> str:
         return self._channel_id
 
     @property
-    def closed(self):
+    def closed(self) -> bool:
         return self._closed
 
-    async def start(self):
+    async def start(self) -> None:
         self._ws = await websockets.connect(self._url)
         try:
             self._recv_loop = asyncio.create_task(self._receive_loop())
@@ -87,7 +96,7 @@ class VoiceClient:
         finally:
             await self._close()
 
-    async def enqueue_media(self, media: MediaFile):
+    async def enqueue_media(self, media: MediaFile) -> None:
         asyncio.get_running_loop().run_in_executor(self._executor, media.download)
         await self._media_queue.put(media)
 
@@ -97,20 +106,19 @@ class VoiceClient:
             return True
         return False
 
-    async def _send(self, op: VoiceOpCode, data: Any):
+    async def _send(self, op: VoiceOpCode, data: Any) -> None:
         payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
         # TODO have logger.log("OUT",...) only here and remove all others?
 
-    async def _send_binary(self, op: VoiceOpCode, data: bytes):
+    async def _send_binary(self, op: VoiceOpCode, data: bytes) -> None:
         await self._ws.send(op.value.to_bytes(length=1) + data)
 
-    async def _send_heartbeat(self, nonce: int):
-        await self._send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq,
-                                                 "t": nonce})
+    async def _send_heartbeat(self, nonce: int) -> None:
+        await self._send(VoiceOpCode.HEARTBEAT, {"seq_ack": self._last_seq, "t": nonce})
         logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}, nonce = {nonce}")
 
-    async def _regular_heartbeats(self, heartbeat_interval: float):
+    async def _regular_heartbeats(self, heartbeat_interval: float) -> None:
         heartbeat_nonce = random.randint(1000000000000, 1999999999999)
         while True:
             try:
@@ -120,21 +128,23 @@ class VoiceClient:
             await asyncio.sleep(heartbeat_interval)
             heartbeat_nonce += 1
 
-    async def _identify(self):
-        data = {"token": self._token,
-                "server_id": self._guild_id,
-                "user_id": self._config.application_id,
-                "session_id": self._session_id,
-                "max_dave_protocol_version": 1}
+    async def _identify(self) -> None:
+        data = {
+            "token": self._token,
+            "server_id": self._guild_id,
+            "user_id": self._config.application_id,
+            "session_id": self._session_id,
+            "max_dave_protocol_version": 1,
+        }
         logger.log("OUT", f"IDENTIFY guild_id = {self._guild_id}")
         await self._send(VoiceOpCode.IDENTIFY, data)
 
-    async def _send_key_package(self):
+    async def _send_key_package(self) -> None:
         key_package = self._dave_session_manager.get_key_package_message()
         await self._send_binary(VoiceOpCode.DAVE_MLS_KEY_PACKAGE, key_package)
         logger.log("OUT", "DAVE MLS KEY PACKAGE")
 
-    async def _handle_hello(self, event: VoiceEvent):
+    async def _handle_hello(self, event: VoiceEvent) -> None:
         logger.log("IN", f"HELLO {event}")
         heartbeat_interval = event.get("heartbeat_interval") / 1000
         await self._identify()
@@ -145,7 +155,7 @@ class VoiceClient:
         self._sock.bind(("0.0.0.0", 2917))  # TODO should use a port range to support multiple simultaneous voice connections
         self._sock.connect((ip, port))
 
-    async def _handle_ready(self, event: VoiceEvent):
+    async def _handle_ready(self, event: VoiceEvent) -> None:
         logger.log("IN", f"VOICE READY {event}")
         ip, port, ssrc, modes = event.get("ip"), event.get("port"), event.get("ssrc"), event.get("modes")
         self._transport_encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
@@ -172,12 +182,24 @@ class VoiceClient:
         logger.info(f"Now playing {media_file}")
         self._stop_event = threading.Event()
         packets = media_file.packets()
-        sent_packets = await asyncio.get_running_loop().run_in_executor(self._executor, udp.stream_audio, self._sock, packets, self._ssrc, self._audio_seq, self._transport_encryption_key, self._rtp_nonce, self._transport_encryption_mode, self._stop_event, self._dave_session_manager)
+        sent_packets = await asyncio.get_running_loop().run_in_executor(
+            self._executor,
+            udp.stream_audio,
+            self._sock,
+            packets,
+            self._ssrc,
+            self._audio_seq,
+            self._transport_encryption_key,
+            self._rtp_nonce,
+            self._transport_encryption_mode,
+            self._stop_event,
+            self._dave_session_manager,
+        )
         self._audio_seq += sent_packets
         self._rtp_nonce += sent_packets
         self._stop_event = None
 
-    async def _play_loop(self):
+    async def _play_loop(self) -> None:
         try:
             while True:
                 logger.info("Waiting for next song in queue...")
@@ -200,7 +222,7 @@ class VoiceClient:
         except asyncio.CancelledError:
             logger.info("Play loop cancelled")
 
-    async def _handle_session_description(self, event: VoiceEvent):
+    async def _handle_session_description(self, event: VoiceEvent) -> None:
         logger.log("IN", f"SESSION DESCRIPTION {event}")
 
         self._transport_encryption_key = event.get("secret_key")
@@ -216,7 +238,7 @@ class VoiceClient:
 
         self._session_ready.set()
 
-    def _handle_dave_mls_external_sender(self, event: VoiceEvent):
+    def _handle_dave_mls_external_sender(self, event: VoiceEvent) -> None:
         logger.log("IN", "DAVE MLS EXTERNAL SENDER")
 
         identity = event.get("external_sender").credential.identity
@@ -225,7 +247,7 @@ class VoiceClient:
         self._dave_session_manager.set_external_sender(identity, signature_key)
         self._external_sender_ready.set()
 
-    async def _handle_dave_mls_welcome(self, event: VoiceEvent):
+    async def _handle_dave_mls_welcome(self, event: VoiceEvent) -> None:
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE MLS WELCOME (transition_id = {transition_id})")
 
@@ -241,7 +263,7 @@ class VoiceClient:
             await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
             logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
-    def _handle_dave_execute_transition(self, event: VoiceEvent):
+    def _handle_dave_execute_transition(self, event: VoiceEvent) -> None:
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
 
@@ -257,7 +279,7 @@ class VoiceClient:
         else:
             self._dave_session_ready.set()
 
-    async def _handle_dave_mls_proposals(self, event: VoiceEvent):
+    async def _handle_dave_mls_proposals(self, event: VoiceEvent) -> None:
         operation_type = event.get("operation_type")
         logger.log("IN", f"DAVE MLS PROPOSALS (operation_type = {operation_type})")
 
@@ -277,7 +299,7 @@ class VoiceClient:
             case _:
                 raise ValueError(f"Unknown DAVE MLS PROPOSALS operation type: {operation_type}")
 
-    async def _invalid_commit_recovery(self, transition_id: int):
+    async def _invalid_commit_recovery(self, transition_id: int) -> None:
         logger.warning("Received invalid commit, starting recovery flow")
 
         self._dave_session_manager.reset_session()
@@ -287,12 +309,7 @@ class VoiceClient:
 
         await self._send_key_package()
 
-    # TODO: during initial group creation, there may or may not be scenarios
-    # where this event (opcode 29) is received instead of a welcome (opcode 30)
-    # If that happens, we should execute transition immediately after processing
-    # the commit, which will likely be authored by Meu Chapeu itself (adequate own
-    # commit processing support is a requirement)
-    async def _handle_dave_mls_announce_commit_transition(self, event: VoiceEvent):
+    async def _handle_dave_mls_announce_commit_transition(self, event: VoiceEvent) -> None:
         transition_id = event.get("transition_id")
         logger.log("IN", f"DAVE MLS ANNOUNCE COMMIT TRANSITION (transition_id = {transition_id})")
 
@@ -310,7 +327,7 @@ class VoiceClient:
             await self._send(VoiceOpCode.DAVE_TRANSITION_READY, {"transition_id": transition_id})
             logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
-    def _handle_dave_prepare_transition(self, event: VoiceEvent):
+    def _handle_dave_prepare_transition(self, event: VoiceEvent) -> None:
         transition_id = event.get("transition_id")
         protocol_version = event.get("protocol_version")
         logger.log("IN", f"DAVE PREPARE TRANSITION (transition_id = {transition_id}, protocol_version = {protocol_version})")
@@ -325,7 +342,7 @@ class VoiceClient:
         else:
             raise NotImplementedError("No support for DAVE transitions to versions higher than 1")
 
-    async def _handle_dave_prepare_epoch(self, event: VoiceEvent):
+    async def _handle_dave_prepare_epoch(self, event: VoiceEvent) -> None:
         dave_version = event.get("protocol_version")
         epoch = event.get("epoch")
         logger.log("IN", f"DAVE PREPARE EPOCH (dave_version = {dave_version}, epoch = {epoch})")
@@ -337,7 +354,7 @@ class VoiceClient:
             self._dave_session_manager.reset_session()
             await self._send_key_package()
 
-    async def _receive_loop(self):
+    async def _receive_loop(self) -> None:
         while True:
             try:
                 event = VoiceEvent(await self._ws.recv())
