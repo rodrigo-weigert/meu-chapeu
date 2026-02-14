@@ -54,8 +54,8 @@ class HttpClient:
         return resp.get("channel_id")
 
     def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
-        id = interaction_event.get("id")
-        token = interaction_event.get("token")
+        id = interaction_event["id"]
+        token = interaction_event["token"]
         respond_url = f"/interactions/{id}/{token}/callback"
         flags = InteractionFlag.SUPRESS_EMBEDS
 
@@ -76,8 +76,8 @@ class HttpClient:
         return success
 
     def update_original_interaction_response(self, interaction_event: Event, message: str) -> bool:
-        id = interaction_event.get("id")
-        token = interaction_event.get("token")
+        id = interaction_event["id"]
+        token = interaction_event["token"]
         respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
 
         logger.log("OUT", f"UPDATING INTERACTION {id}")
