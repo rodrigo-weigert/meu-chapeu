@@ -17,21 +17,33 @@ class OpCode(Enum):
     HEARTBEAT_ACK = 11
 
 
-# TODO: improve this class and how it is used
 class Event:
-    opcode: OpCode
-    name: str | None
-    seq_num: int | None
+    _opcode: OpCode
+    _seq_num: int | None
+    _name: str | None
     _parsed: Dict[str, Any]
 
-    def __init__(self, raw):
-        self._parsed = json.loads(raw)
-        self.opcode = OpCode(self._parsed["op"])
-        self.name = self._parsed.get("t")
-        self.seq_num = self._parsed.get("s")
+    def __init__(self, raw: str) -> None:
+        parsed = json.loads(raw)
+        self._opcode = OpCode(parsed["op"])
+        self._seq_num = parsed.get("s")
+        self._name = parsed.get("t")
+        self._parsed = parsed["d"]
 
-    def get(self, prop: str) -> Any:
-        return self._parsed["d"].get(prop)
+    @property
+    def opcode(self) -> OpCode:
+        return self._opcode
 
-    def __str__(self):
-        return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Name: {self.name}, Raw: {self._parsed}"
+    @property
+    def seq_num(self) -> int | None:
+        return self._seq_num
+
+    @property
+    def name(self) -> str | None:
+        return self._name
+
+    def __getitem__(self, key: str) -> Any:
+        return self._parsed[key]
+
+    def __str__(self) -> str:
+        return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Name: {self.name}, Data: {self._parsed}"

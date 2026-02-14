@@ -17,6 +17,7 @@ logger = base_logger.bind(context="GatewayClient")
 ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
 
 
+# TODO: organize this class
 class Client:
     http_client: HttpClient
     url: str
@@ -80,7 +81,7 @@ class Client:
         if self._identified:
             return
 
-        heartbeat_interval = event.get("heartbeat_interval") / 1000
+        heartbeat_interval = event["heartbeat_interval"] / 1000
         initial_wait = heartbeat_interval * random.random()
         logger.info(f"Heartbeat interval: {heartbeat_interval:.3f} s")
         logger.info(f"Will start regular heartbeats in {initial_wait:.3f} s")
@@ -89,22 +90,22 @@ class Client:
         self._heartbeat_task = asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
 
     def handle_voice_state_update(self, event: Event):
-        if event.get("member")["user"]["id"] != self.config.application_id:
+        if event["member"]["user"]["id"] != self.config.application_id:
             return  # We receive updates for all guild users
-        guild_id = event.get("guild_id")
+        guild_id = event["guild_id"]
         fut = self._voice_state_updates.pop(guild_id, None)
         if fut:
             fut.set_result(event)
 
     def handle_voice_server_update(self, event: Event):
-        guild_id = event.get("guild_id")
+        guild_id = event["guild_id"]
         fut = self._voice_server_updates.pop(guild_id, None)
         if fut:
             fut.set_result(event)
 
     async def handle_play(self, event: Event):
-        guild_id = event.get("guild_id")
-        user_id = event.get("member")["user"]["id"]
+        guild_id = event["guild_id"]
+        user_id = event["member"]["user"]["id"]
 
         response_ok = self.http_client.respond_interaction_with_message(event, "", deferred=True)
         if not response_ok:
@@ -124,7 +125,7 @@ class Client:
             self.http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
             return
 
-        search_query = event.get("data")["options"][0]["value"]
+        search_query = event["data"]["options"][0]["value"]
         media = youtube.get_video_from_user_query(search_query, self.config)
 
         if media is None:
@@ -136,8 +137,8 @@ class Client:
             await voice_client.enqueue_media(media)
 
     def handle_skip(self, event: Event):
-        guild_id = event.get("guild_id")
-        user_id = event.get("member")["user"]["id"]
+        guild_id = event["guild_id"]
+        user_id = event["member"]["user"]["id"]
         voice_client = self.voice_clients.get(guild_id)
 
         if voice_client is None:
@@ -156,17 +157,16 @@ class Client:
         logger.log("IN", f"DISPATCH: {event}")
         match event.name:
             case "READY":
-                self._session_id = event.get("session_id")
-                self._resume_url = event.get("resume_gateway_url")
+                self._session_id = event["session_id"]
+                self._resume_url = event["resume_gateway_url"]
                 self._identified = True
             case "INTERACTION_CREATE":
-                command_name = event.get("data")["name"]
+                command_name = event["data"]["name"]
                 match command_name:
                     case "play":
                         await self.handle_play(event)
                     case "skip":
                         self.handle_skip(event)
-
             case "VOICE_STATE_UPDATE":
                 self.handle_voice_state_update(event)
             case "VOICE_SERVER_UPDATE":
@@ -193,9 +193,9 @@ class Client:
 
         vc = VoiceClient(guild_id,
                          channel_id,
-                         server_resp.get("endpoint"),
-                         state_resp.get("session_id"),
-                         server_resp.get("token"),
+                         server_resp["endpoint"],
+                         state_resp["session_id"],
+                         server_resp["token"],
                          lambda: self.leave_voice_channel(guild_id),
                          self.config)
 

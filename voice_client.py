@@ -146,7 +146,7 @@ class VoiceClient:
 
     async def _handle_hello(self, event: VoiceEvent) -> None:
         logger.log("IN", f"HELLO {event}")
-        heartbeat_interval = event.get("heartbeat_interval") / 1000
+        heartbeat_interval = event["heartbeat_interval"] / 1000
         await self._identify()
         asyncio.create_task(self._regular_heartbeats(heartbeat_interval))
 
@@ -157,7 +157,7 @@ class VoiceClient:
 
     async def _handle_ready(self, event: VoiceEvent) -> None:
         logger.log("IN", f"VOICE READY {event}")
-        ip, port, ssrc, modes = event.get("ip"), event.get("port"), event.get("ssrc"), event.get("modes")
+        ip, port, ssrc, modes = event["ip"], event["port"], event["ssrc"], event["modes"]
         self._transport_encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
         self._ssrc = ssrc
         self._prepare_socket(ip, port)
@@ -225,13 +225,13 @@ class VoiceClient:
     async def _handle_session_description(self, event: VoiceEvent) -> None:
         logger.log("IN", f"SESSION DESCRIPTION {event}")
 
-        self._transport_encryption_key = event.get("secret_key")
+        self._transport_encryption_key = event["secret_key"]
 
         speaking_payload = {"ssrc": self._ssrc, "speaking": (1 << 0), "delay": 0}
         await self._send(VoiceOpCode.SPEAKING, speaking_payload)
         logger.log("OUT", f"SPEAKING {speaking_payload}")
 
-        if event.get("dave_protocol_version") > 0:
+        if event["dave_protocol_version"] > 0:
             await self._send_key_package()
         else:
             self._dave_session_ready.set()
@@ -241,19 +241,19 @@ class VoiceClient:
     def _handle_dave_mls_external_sender(self, event: VoiceEvent) -> None:
         logger.log("IN", "DAVE MLS EXTERNAL SENDER")
 
-        identity = event.get("external_sender").credential.identity
-        signature_key = event.get("external_sender").signature_key
+        identity = event["external_sender"]["credential"]["identity"]
+        signature_key = event["external_sender"]["signature_key"]
 
         self._dave_session_manager.set_external_sender(identity, signature_key)
         self._external_sender_ready.set()
 
     async def _handle_dave_mls_welcome(self, event: VoiceEvent) -> None:
-        transition_id = event.get("transition_id")
+        transition_id = event["transition_id"]
         logger.log("IN", f"DAVE MLS WELCOME (transition_id = {transition_id})")
 
         await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
 
-        self._dave_session_manager.stage_transition_from_welcome(transition_id, event.get("welcome_message"))
+        self._dave_session_manager.stage_transition_from_welcome(transition_id, event["welcome_message"])
 
         if transition_id == 0:
             self._dave_session_manager.execute_transition(0)
@@ -264,7 +264,7 @@ class VoiceClient:
             logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
     def _handle_dave_execute_transition(self, event: VoiceEvent) -> None:
-        transition_id = event.get("transition_id")
+        transition_id = event["transition_id"]
         logger.log("IN", f"DAVE EXECUTE TRANSITION (transition_id = {transition_id})")
 
         transition_type = self._dave_session_manager.execute_transition(transition_id)
@@ -280,14 +280,14 @@ class VoiceClient:
             self._dave_session_ready.set()
 
     async def _handle_dave_mls_proposals(self, event: VoiceEvent) -> None:
-        operation_type = event.get("operation_type")
+        operation_type = event["operation_type"]
         logger.log("IN", f"DAVE MLS PROPOSALS (operation_type = {operation_type})")
 
         match operation_type:
             case 0:  # Append
                 await asyncio.wait_for(self._external_sender_ready.wait(), timeout=10.0)
 
-                commit_welcome_message = self._dave_session_manager.append_proposals(event.get("proposal_messages"))
+                commit_welcome_message = self._dave_session_manager.append_proposals(event["proposal_messages"])
 
                 if commit_welcome_message is not None:
                     await self._send_binary(VoiceOpCode.DAVE_MLS_COMMIT_WELCOME, commit_welcome_message)
@@ -310,11 +310,11 @@ class VoiceClient:
         await self._send_key_package()
 
     async def _handle_dave_mls_announce_commit_transition(self, event: VoiceEvent) -> None:
-        transition_id = event.get("transition_id")
+        transition_id = event["transition_id"]
         logger.log("IN", f"DAVE MLS ANNOUNCE COMMIT TRANSITION (transition_id = {transition_id})")
 
         try:
-            self._dave_session_manager.stage_transition_from_commit(transition_id, event.get("commit_message"))
+            self._dave_session_manager.stage_transition_from_commit(transition_id, event["commit_message"])
         except DaveInvalidCommitException:
             await self._invalid_commit_recovery(transition_id)
             return
@@ -328,8 +328,8 @@ class VoiceClient:
             logger.log("OUT", f"DAVE TRANSITION READY (transition_id = {transition_id})")
 
     def _handle_dave_prepare_transition(self, event: VoiceEvent) -> None:
-        transition_id = event.get("transition_id")
-        protocol_version = event.get("protocol_version")
+        transition_id = event["transition_id"]
+        protocol_version = event["protocol_version"]
         logger.log("IN", f"DAVE PREPARE TRANSITION (transition_id = {transition_id}, protocol_version = {protocol_version})")
 
         if protocol_version == 0:
@@ -343,8 +343,8 @@ class VoiceClient:
             raise NotImplementedError("No support for DAVE transitions to versions higher than 1")
 
     async def _handle_dave_prepare_epoch(self, event: VoiceEvent) -> None:
-        dave_version = event.get("protocol_version")
-        epoch = event.get("epoch")
+        dave_version = event["protocol_version"]
+        epoch = event["epoch"]
         logger.log("IN", f"DAVE PREPARE EPOCH (dave_version = {dave_version}, epoch = {epoch})")
 
         if dave_version != 1:

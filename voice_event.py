@@ -35,31 +35,38 @@ class VoiceOpCode(Enum):
         return cls.UNKNOWN
 
 
-# TODO: improve this class and how it is used
 class VoiceEvent:
-    opcode: VoiceOpCode
-    name: str | None
-    seq_num: int | None
+    _opcode: VoiceOpCode
+    _seq_num: int | None
     _parsed: Dict[str, Any]
-    binary: bool
+    _binary: bool
 
-    def __init__(self, raw: str | bytes):
+    def __init__(self, raw: str | bytes) -> None:
         if isinstance(raw, str):
-            self._parsed = json.loads(raw)
-            self.opcode = VoiceOpCode(self._parsed["op"])
-            self.seq_num = self._parsed.get("seq")
-            self.binary = False
+            parsed = json.loads(raw)
+            self._opcode = VoiceOpCode(parsed["op"])
+            self._seq_num = parsed.get("seq")
+            self._parsed = parsed.get("d", {})
+            self._binary = False
         else:
             parsed = dave.parser.DAVE_Message.parse(raw)
-            self.seq_num = parsed.get("sequence_number")
-            self.opcode = VoiceOpCode(parsed.opcode)
-            self._parsed = {"d": parsed.data}
-            self.binary = True
+            self._opcode = VoiceOpCode(parsed.opcode)
+            self._seq_num = parsed.get("sequence_number")
+            self._parsed = parsed.data
+            self._binary = True
 
-    def get(self, prop: str) -> Any:
-        return self._parsed["d"].get(prop)
+    @property
+    def opcode(self) -> VoiceOpCode:
+        return self._opcode
 
-    def __str__(self):
-        if self.binary:
-            return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Parsed binary fields: {[k for k in self._parsed["d"].keys() if not k.startswith("_")]}"
-        return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Raw: {self._parsed}"
+    @property
+    def seq_num(self) -> int | None:
+        return self._seq_num
+
+    def __getitem__(self, key: str) -> Any:
+        return self._parsed[key]
+
+    def __str__(self) -> str:
+        if self._binary:
+            return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Binary fields: {[k for k in self._parsed.keys() if not k.startswith("_")]}"
+        return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Data: {self._parsed}"
