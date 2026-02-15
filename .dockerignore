@@ -7,6 +7,6 @@ __pycache__/
 .env
 .git
 .vscode
-meu-chapeu-env/
+venv/
 dave/openmls/target
 TODO.txt

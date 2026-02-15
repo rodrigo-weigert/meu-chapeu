@@ -2,7 +2,7 @@ import requests
 import tempfile
 import urllib.parse
 import yt_dlp
-import isodate
+import isodate  # type: ignore[import-untyped]
 import opus
 import pickle
 

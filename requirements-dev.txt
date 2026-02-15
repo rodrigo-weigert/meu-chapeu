@@ -1,0 +1,4 @@
+construct-typing
+types-requests
+types-yt-dlp
+typing_extensions

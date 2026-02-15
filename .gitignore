@@ -1,5 +1,5 @@
 __pycache__
-meu-chapeu-env
+venv
 .env
 .dev.env
 .flake8
