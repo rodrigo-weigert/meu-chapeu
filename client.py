@@ -17,7 +17,6 @@ logger = base_logger.bind(context="GatewayClient")
 ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
 
 
-# TODO: organize this class
 class Client:
     _http_client: HttpClient
     _url: str
@@ -34,7 +33,7 @@ class Client:
     _resume_url: str
     _heartbeat_task: asyncio.Task | None
 
-    def __init__(self, http_client: HttpClient, intents: int, config: Config):
+    def __init__(self, http_client: HttpClient, intents: int, config: Config) -> None:
         self._http_client = http_client
         self._url = http_client.get_gateway_url()
         self._intents = intents
@@ -47,11 +46,22 @@ class Client:
         self._identified = False
         self._closed = False
 
-    async def send(self, op: OpCode, data: Any):
+    async def start(self) -> None:
+        logger.info("Bot starting")
+        self._ws = await websockets.connect(self._url)
+        try:
+            await self._receive_loop()
+        except asyncio.exceptions.CancelledError:
+            logger.info("Receive loop task cancelled")
+        finally:
+            self._closed = True
+            await self._ws.close()
+
+    async def send(self, op: OpCode, data: Any) -> None:
         payload = {"op": op.value, "d": data}
         await self._ws.send(json.dumps(payload))
 
-    async def send_heartbeat(self):
+    async def _send_heartbeat(self) -> None:
         try:
             await self.send(OpCode.HEARTBEAT, self._last_seq)
         except websockets.exceptions.ConnectionClosed:
@@ -59,15 +69,15 @@ class Client:
             return
         logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
 
-    async def regular_heartbeats(self, heartbeat_interval):
+    async def _regular_heartbeats(self, heartbeat_interval) -> None:
         try:
             while not self._closed:
-                await self.send_heartbeat()
+                await self._send_heartbeat()
                 await asyncio.sleep(heartbeat_interval)
         except asyncio.exceptions.CancelledError:
             logger.info("Heartbeat task cancelled")
 
-    async def identify(self):
+    async def _identify(self) -> None:
         data = {"token": self._config.api_token,
                 "intents": self._intents,
                 "properties": {"os": "linux",
@@ -76,7 +86,7 @@ class Client:
         await self.send(OpCode.IDENTIFY, data)
         logger.log("OUT", "IDENTIFY")
 
-    async def handle_hello(self, event: Event):
+    async def _handle_hello(self, event: Event) -> None:
         logger.log("IN", "HELLO")
 
         if self._identified:
@@ -86,11 +96,11 @@ class Client:
         initial_wait = heartbeat_interval * random.random()
         logger.info(f"Heartbeat interval: {heartbeat_interval:.3f} s")
         logger.info(f"Will start regular heartbeats in {initial_wait:.3f} s")
-        await self.identify()
+        await self._identify()
         await asyncio.sleep(initial_wait)
-        self._heartbeat_task = asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
+        self._heartbeat_task = asyncio.create_task(self._regular_heartbeats(heartbeat_interval))
 
-    def handle_voice_state_update(self, event: Event):
+    def _handle_voice_state_update(self, event: Event) -> None:
         if event["member"]["user"]["id"] != self._config.application_id:
             return  # We receive updates for all guild users
         guild_id = event["guild_id"]
@@ -98,13 +108,13 @@ class Client:
         if fut:
             fut.set_result(event)
 
-    def handle_voice_server_update(self, event: Event):
+    def _handle_voice_server_update(self, event: Event) -> None:
         guild_id = event["guild_id"]
         fut = self._voice_server_updates.pop(guild_id, None)
         if fut:
             fut.set_result(event)
 
-    async def handle_play(self, event: Event):
+    async def _handle_play(self, event: Event) -> None:
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
 
@@ -120,7 +130,7 @@ class Client:
         voice_client = self._voice_clients.get(guild_id)
 
         if voice_client is None or voice_client.closed:
-            voice_client = await self.join_voice_channel(guild_id, channel_id)
+            voice_client = await self._join_voice_channel(guild_id, channel_id)
             self._voice_clients[guild_id] = voice_client
         elif voice_client.channel_id != channel_id:
             self._http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
@@ -137,7 +147,7 @@ class Client:
         if response_ok:
             await voice_client.enqueue_media(media)
 
-    def handle_skip(self, event: Event):
+    def _handle_skip(self, event: Event) -> None:
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
         voice_client = self._voice_clients.get(guild_id)
@@ -154,7 +164,7 @@ class Client:
         else:
             self._http_client.respond_interaction_with_message(event, "Nothing to skip", ephemeral=True)
 
-    async def handle_dispatch(self, event: Event):
+    async def _handle_dispatch(self, event: Event) -> None:
         logger.log("IN", f"DISPATCH: {event}")
         match event.name:
             case "READY":
@@ -165,17 +175,17 @@ class Client:
                 command_name = event["data"]["name"]
                 match command_name:
                     case "play":
-                        await self.handle_play(event)
+                        await self._handle_play(event)
                     case "skip":
-                        self.handle_skip(event)
+                        self._handle_skip(event)
             case "VOICE_STATE_UPDATE":
-                self.handle_voice_state_update(event)
+                self._handle_voice_state_update(event)
             case "VOICE_SERVER_UPDATE":
-                self.handle_voice_server_update(event)
+                self._handle_voice_server_update(event)
             case "RESUMED":
                 logger.info("Connection resumed successfully")
 
-    async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient:
+    async def _join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient:
         state_future = asyncio.get_running_loop().create_future()
         server_future = asyncio.get_running_loop().create_future()
         self._voice_state_updates[guild_id] = state_future
@@ -197,7 +207,7 @@ class Client:
                          server_resp["endpoint"],
                          state_resp["session_id"],
                          server_resp["token"],
-                         lambda: self.leave_voice_channel(guild_id),
+                         lambda: self._leave_voice_channel(guild_id),
                          self._config)
 
         logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
@@ -205,7 +215,7 @@ class Client:
         asyncio.create_task(vc.start())
         return vc
 
-    async def leave_voice_channel(self, guild_id: str) -> None:
+    async def _leave_voice_channel(self, guild_id: str) -> None:
         vsu_payload = {"guild_id": guild_id,
                        "channel_id": None,
                        "self_mute": False,
@@ -217,7 +227,7 @@ class Client:
 
         logger.log("OUT", f"VOICE_STATE_UPDATE: {vsu_payload}")
 
-    async def reconnect(self):
+    async def _reconnect(self) -> None:
         logger.info("Reconnecting...")
         connected = False
 
@@ -235,7 +245,7 @@ class Client:
                                         "seq": self._last_seq})
         logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
 
-    async def handle_invalid_session(self):
+    async def _handle_invalid_session(self) -> None:
         logger.info("Received invalid session, opening new session in 60 seconds")
 
         self._identified = False
@@ -255,14 +265,16 @@ class Client:
 
         logger.info("New session started")
 
-    async def receive_loop(self):
+    async def _receive_loop(self) -> None:
         while True:
             try:
-                event = Event(await self._ws.recv())
+                data = await self._ws.recv()
+                assert isinstance(data, str)
+                event = Event(data)
             except websockets.exceptions.ConnectionClosedOK as e:
                 logger.info(f"Connection normal closure (close code: {e.code}, reason: {e.reason})")
                 if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
-                    await self.reconnect()
+                    await self._reconnect()
                     continue
                 else:
                     logger.info(f"Close code {e.code} does not allow reconnection, stopping client")
@@ -270,7 +282,7 @@ class Client:
             except websockets.exceptions.ConnectionClosedError as e:
                 logger.warning(f"Connection closed with error (close code: {e.code}, reason: {e.reason})")
                 if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
-                    await self.reconnect()
+                    await self._reconnect()
                     continue
                 else:
                     logger.warning(f"Close code {e.code} does not allow reconnection, stopping client")
@@ -280,27 +292,16 @@ class Client:
                 self._last_seq = event.seq_num
             match event.opcode:
                 case OpCode.HELLO:
-                    asyncio.create_task(self.handle_hello(event))
+                    asyncio.create_task(self._handle_hello(event))
                 case OpCode.HEARTBEAT_ACK:
                     logger.log("IN", "HEARTBEAT ACK")  # TODO: handle lack of heartbeat ack (zombie connection)
                 case OpCode.HEARTBEAT:
-                    await self.send_heartbeat()
+                    await self._send_heartbeat()
                 case OpCode.DISPATCH:
-                    asyncio.create_task(self.handle_dispatch(event))
+                    asyncio.create_task(self._handle_dispatch(event))
                 case OpCode.RECONNECT:
                     logger.log("IN", "RECONNECT")
-                    await self.reconnect()
+                    await self._reconnect()
                 case OpCode.INVALID_SESSION:
                     logger.log("IN", f"INVALID SESSION {event}")
-                    await self.handle_invalid_session()
-
-    async def start(self):
-        logger.info("Bot starting")
-        self._ws = await websockets.connect(self._url)
-        try:
-            await self.receive_loop()
-        except asyncio.exceptions.CancelledError:
-            logger.info("Receive loop task cancelled")
-        finally:
-            self._closed = True
-            await self._ws.close()
+                    await self._handle_invalid_session()
