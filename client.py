@@ -19,28 +19,29 @@ ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007,
 
 # TODO: organize this class
 class Client:
-    http_client: HttpClient
-    url: str
-    intents: int
-    config: Config
-    voice_clients: Dict[str, VoiceClient]
-    _ws: websockets.ClientConnection
+    _http_client: HttpClient
+    _url: str
+    _intents: int
+    _config: Config
     _last_seq: int | None
+    _voice_clients: Dict[str, VoiceClient]
     _voice_state_updates: Dict[str, asyncio.Future[Event]]
     _voice_server_updates: Dict[str, asyncio.Future[Event]]
-    _session_id: str
-    _resume_url: str
     _identified: bool
     _closed: bool
+    _ws: websockets.ClientConnection
+    _session_id: str
+    _resume_url: str
     _heartbeat_task: asyncio.Task | None
 
     def __init__(self, http_client: HttpClient, intents: int, config: Config):
-        self.url = http_client.get_gateway_url()
-        self.http_client = http_client
+        self._http_client = http_client
+        self._url = http_client.get_gateway_url()
+        self._intents = intents
+        self._config = config
+
         self._last_seq = None
-        self.intents = intents
-        self.config = config
-        self.voice_clients = {}
+        self._voice_clients = {}
         self._voice_state_updates = {}
         self._voice_server_updates = {}
         self._identified = False
@@ -67,8 +68,8 @@ class Client:
             logger.info("Heartbeat task cancelled")
 
     async def identify(self):
-        data = {"token": self.config.api_token,
-                "intents": self.intents,
+        data = {"token": self._config.api_token,
+                "intents": self._intents,
                 "properties": {"os": "linux",
                                "browser": "meu_chapeu",
                                "device": "meu_chapeu"}}
@@ -90,7 +91,7 @@ class Client:
         self._heartbeat_task = asyncio.create_task(self.regular_heartbeats(heartbeat_interval))
 
     def handle_voice_state_update(self, event: Event):
-        if event["member"]["user"]["id"] != self.config.application_id:
+        if event["member"]["user"]["id"] != self._config.application_id:
             return  # We receive updates for all guild users
         guild_id = event["guild_id"]
         fut = self._voice_state_updates.pop(guild_id, None)
@@ -107,51 +108,51 @@ class Client:
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
 
-        response_ok = self.http_client.respond_interaction_with_message(event, "", deferred=True)
+        response_ok = self._http_client.respond_interaction_with_message(event, "", deferred=True)
         if not response_ok:
             return
 
-        channel_id = self.http_client.get_user_voice_channel(guild_id, user_id)
+        channel_id = self._http_client.get_user_voice_channel(guild_id, user_id)
         if channel_id is None:
-            self.http_client.update_original_interaction_response(event, "You need to be in a channel I can join or have already joined, in the same server you called me.")
+            self._http_client.update_original_interaction_response(event, "You need to be in a channel I can join or have already joined, in the same server you called me.")
             return
 
-        voice_client = self.voice_clients.get(guild_id)
+        voice_client = self._voice_clients.get(guild_id)
 
         if voice_client is None or voice_client.closed:
             voice_client = await self.join_voice_channel(guild_id, channel_id)
-            self.voice_clients[guild_id] = voice_client
+            self._voice_clients[guild_id] = voice_client
         elif voice_client.channel_id != channel_id:
-            self.http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
+            self._http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
             return
 
         search_query = event["data"]["options"][0]["value"]
-        media = youtube.get_video_from_user_query(search_query, self.config)
+        media = youtube.get_video_from_user_query(search_query, self._config)
 
         if media is None:
-            self.http_client.update_original_interaction_response(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
+            self._http_client.update_original_interaction_response(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
             return
 
-        response_ok = self.http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
+        response_ok = self._http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue")
         if response_ok:
             await voice_client.enqueue_media(media)
 
     def handle_skip(self, event: Event):
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
-        voice_client = self.voice_clients.get(guild_id)
+        voice_client = self._voice_clients.get(guild_id)
 
         if voice_client is None:
-            self.http_client.respond_interaction_with_message(event, "I'm not connected in this server", ephemeral=True)
+            self._http_client.respond_interaction_with_message(event, "I'm not connected in this server", ephemeral=True)
             return
-        elif voice_client.channel_id != self.http_client.get_user_voice_channel(guild_id, user_id):
-            self.http_client.respond_interaction_with_message(event, "You need to be in the same channel I'm currently connected to", ephemeral=True)
+        elif voice_client.channel_id != self._http_client.get_user_voice_channel(guild_id, user_id):
+            self._http_client.respond_interaction_with_message(event, "You need to be in the same channel I'm currently connected to", ephemeral=True)
             return
 
         if voice_client.skip_current_media():
-            self.http_client.respond_interaction_with_message(event, "Skipped")
+            self._http_client.respond_interaction_with_message(event, "Skipped")
         else:
-            self.http_client.respond_interaction_with_message(event, "Nothing to skip", ephemeral=True)
+            self._http_client.respond_interaction_with_message(event, "Nothing to skip", ephemeral=True)
 
     async def handle_dispatch(self, event: Event):
         logger.log("IN", f"DISPATCH: {event}")
@@ -197,7 +198,7 @@ class Client:
                          state_resp["session_id"],
                          server_resp["token"],
                          lambda: self.leave_voice_channel(guild_id),
-                         self.config)
+                         self._config)
 
         logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
 
@@ -229,7 +230,7 @@ class Client:
                 logger.warning("Reconnection failed, retrying after 30 seconds...")
                 await asyncio.sleep(30)
 
-        await self.send(OpCode.RESUME, {"token": self.config.api_token,
+        await self.send(OpCode.RESUME, {"token": self._config.api_token,
                                         "session_id": self._session_id,
                                         "seq": self._last_seq})
         logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")
@@ -247,7 +248,7 @@ class Client:
             await asyncio.sleep(60)
             logger.info("Attempting to start a new session...")
             try:
-                self._ws = await websockets.connect(self.url, open_timeout=None)
+                self._ws = await websockets.connect(self._url, open_timeout=None)
                 connected = True
             except Exception as e:
                 logger.warning(f"Attempt to start new session failed. Exception: {e}")
@@ -295,7 +296,7 @@ class Client:
 
     async def start(self):
         logger.info("Bot starting")
-        self._ws = await websockets.connect(self.url)
+        self._ws = await websockets.connect(self._url)
         try:
             await self.receive_loop()
         except asyncio.exceptions.CancelledError:
