@@ -354,6 +354,7 @@ class VoiceClient:
             self._dave_session_manager.reset_session()
             await self._send_key_package()
 
+    # TODO: reconnection logic
     async def _receive_loop(self) -> None:
         while True:
             try:

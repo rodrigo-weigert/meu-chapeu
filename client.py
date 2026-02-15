@@ -10,11 +10,9 @@ from config import Config
 from voice_client import VoiceClient
 from http_client import HttpClient
 from logs import logger as base_logger
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 logger = base_logger.bind(context="GatewayClient")
-
-
-ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
 
 
 class Client:
@@ -265,27 +263,27 @@ class Client:
 
         logger.info("New session started")
 
+    async def _handle_disconnection(self, exception: ConnectionClosed) -> bool:
+        if isinstance(exception, ConnectionClosedOK):
+            logger.info(f"Connection closed (OK): {exception}")
+        else:
+            logger.warning(f"Connection closed (error): {exception}")
+        if _should_reconnect(exception):
+            await self._reconnect()
+            return True
+        return False
+
     async def _receive_loop(self) -> None:
         while True:
             try:
                 data = await self._ws.recv()
                 assert isinstance(data, str)
                 event = Event(data)
-            except websockets.exceptions.ConnectionClosedOK as e:
-                logger.info(f"Connection normal closure (close code: {e.code}, reason: {e.reason})")
-                if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
-                    await self._reconnect()
+            except ConnectionClosed as e:
+                if await self._handle_disconnection(e):
                     continue
                 else:
-                    logger.info(f"Close code {e.code} does not allow reconnection, stopping client")
-                    return
-            except websockets.exceptions.ConnectionClosedError as e:
-                logger.warning(f"Connection closed with error (close code: {e.code}, reason: {e.reason})")
-                if e.code in ALLOWED_RECONNECT_CLOSE_CODES:
-                    await self._reconnect()
-                    continue
-                else:
-                    logger.warning(f"Close code {e.code} does not allow reconnection, stopping client")
+                    logger.info("Reconnection is not allowed. Closing client.")
                     return
 
             if event.seq_num:
@@ -305,3 +303,10 @@ class Client:
                 case OpCode.INVALID_SESSION:
                     logger.log("IN", f"INVALID SESSION {event}")
                     await self._handle_invalid_session()
+
+
+_ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4000, 4001, 4002, 4003, 4005, 4007, 4008, 4009}
+
+
+def _should_reconnect(exception: ConnectionClosed) -> bool:
+    return exception.rcvd is None or exception.rcvd.code in _ALLOWED_RECONNECT_CLOSE_CODES
