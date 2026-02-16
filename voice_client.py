@@ -13,6 +13,7 @@ from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
 from dave.session import DaveSessionManager, DaveInvalidCommitException, TransitionType
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 logger = base_logger.bind(context="VoiceGatewayClient")
 
@@ -354,20 +355,46 @@ class VoiceClient:
             self._dave_session_manager.reset_session()
             await self._send_key_package()
 
-    # TODO: reconnection logic
+    async def _reconnect(self) -> None:
+        logger.info("Reconnecting...")
+        try:
+            self._ws = await websockets.connect(self._url)
+            resume = {
+                "server_id": self._guild_id,
+                "session_id": self._session_id,
+                "token": self._token,
+                "seq_ack": self._last_seq
+            }
+            await self._send(VoiceOpCode.RESUME, resume)
+            logger.log("OUT", f"RESUME (server_id = {self._guild_id})")
+        except Exception as e:
+            logger.warning(f"Failed to reconnect: {e}")
+
+    async def _handle_disconnection(self, exception: ConnectionClosed) -> bool:
+        if _kicked_or_call_terminated(exception):
+            logger.info(f"Kicked from channel or call terminated: {exception}")
+            return False
+
+        if isinstance(exception, ConnectionClosedOK):
+            logger.info(f"Connection closed (OK): {exception}")
+        else:
+            logger.warning(f"Connection closed (error): {exception}")
+
+        if _should_reconnect(exception):
+            await self._reconnect()
+            return True
+        return False
+
     async def _receive_loop(self) -> None:
         while True:
             try:
                 event = VoiceEvent(await self._ws.recv())
-            except websockets.exceptions.ConnectionClosedOK as e:
-                logger.info(f"Connection normal closure (code {e.code}), stopping client")
-                return
-            except websockets.exceptions.ConnectionClosedError as e:
-                if e.code == 4014:
-                    logger.info("Connection closed due to disconnect (kicked from channel?), stopping client")
+            except websockets.exceptions.ConnectionClosed as e:
+                if await self._handle_disconnection(e):
+                    continue
                 else:
-                    logger.warning(f"Connection closed with error (code {e.code}), stopping client")
-                return
+                    logger.info("Reconnection is not allowed. Closing client.")
+                    return
 
             if event.seq_num:
                 self._last_seq = event.seq_num
@@ -395,6 +422,8 @@ class VoiceClient:
                     self._handle_dave_prepare_transition(event)
                 case VoiceOpCode.DAVE_PREPARE_EPOCH:
                     await self._handle_dave_prepare_epoch(event)
+                case VoiceOpCode.RESUMED:
+                    logger.info("Connection resumed successfully")
                 case _:
                     logger.log("IN", f"UNHANDLED VOICE EVENT {event}")
 
@@ -420,3 +449,14 @@ class VoiceClient:
                 await self._close()
         except asyncio.CancelledError:
             logger.info("Idle timer cancelled")
+
+
+_ALLOWED_RECONNECT_CLOSE_CODES = {1001, 1006, 4015}
+
+
+def _should_reconnect(exception: ConnectionClosed) -> bool:
+    return exception.rcvd is None or exception.rcvd.code in _ALLOWED_RECONNECT_CLOSE_CODES
+
+
+def _kicked_or_call_terminated(exception: ConnectionClosed) -> bool:
+    return exception.rcvd is not None and exception.rcvd.code in {4014, 4022}
