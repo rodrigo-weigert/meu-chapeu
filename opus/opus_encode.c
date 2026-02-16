@@ -1,14 +1,16 @@
+#include<assert.h>
 #include<opus/opus.h>
 #include<stdio.h>
 #include<stdlib.h>
+#include<stdint.h>
 
 const int SAMPLE_RATE = 48000;
-const int SAMPLES_PER_FRAME = 960;
+const int SAMPLES_PER_FRAME_PER_CHANNEL = 960;
 const int CHANNELS = 2;
-const int INPUT_BUFFER_SIZE = sizeof(opus_int16) * CHANNELS * SAMPLES_PER_FRAME + 10;
-const int OUTPUT_BUFFER_SIZE = 4000;
+const int SAMPLES_PER_FRAME = CHANNELS * SAMPLES_PER_FRAME_PER_CHANNEL;
+const int MAX_PACKET_SIZE = 4000;
 
-int file_size(FILE* file) {
+size_t file_size(FILE* file) {
     int prev = ftell(file), file_size;
     fseek(file, 0L, SEEK_END);
     file_size = ftell(file);
@@ -16,110 +18,121 @@ int file_size(FILE* file) {
     return file_size;
 }
 
-int total_packets(FILE* file) {
-    int bytes_per_frame = SAMPLES_PER_FRAME * CHANNELS * sizeof(opus_int16);
-    return (file_size(file) + bytes_per_frame - 1) / bytes_per_frame;
-}
-
 void free_buffer(void* p) {
     free(p);
 }
 
-unsigned char** get_opus_packets(char* pcm_filename, int* packet_count, int** packet_lengths) {
+/**
+ * Reads the entire PCM file into a buffer.
+ * Pads with zeros so the last opus frame has the correct number of samples.
+ */
+opus_int16* read_pcm(char* filename, size_t* out_sample_count) {
+    FILE* file = fopen(filename, "rb");
+    size_t size_in_bytes = file_size(file);
+
+    assert(size_in_bytes % sizeof(opus_int16) == 0);
+
+    size_t sample_count = size_in_bytes / sizeof(opus_int16);
+
+    size_t padded_sample_count = sample_count;
+    if (sample_count % SAMPLES_PER_FRAME != 0) {
+        padded_sample_count += SAMPLES_PER_FRAME - (sample_count % SAMPLES_PER_FRAME);
+    }
+
+    opus_int16* data = (opus_int16*) calloc(padded_sample_count, sizeof(opus_int16));
+
+    if (data == NULL) {
+        return NULL;
+    }
+
+    size_t read = fread(data, sizeof(opus_int16), sample_count, file);
+    fclose(file);
+
+    if (read == sample_count) {
+        *out_sample_count = padded_sample_count;
+        return data;
+    }
+
+    *out_sample_count = 0;
+    free(data);
+    return NULL;
+}
+
+uint8_t* get_opus_packets(char* pcm_filename, size_t* packet_count, size_t** packet_lengths) {
+    size_t sample_count;
+    opus_int16 *samples = read_pcm(pcm_filename, &sample_count);
+
+    if (samples == NULL) {
+        fprintf(stderr, "Failed to read file %s", pcm_filename);
+        return NULL;
+    }
+
+    assert(sample_count % SAMPLES_PER_FRAME == 0);
+
+    size_t num_packets = sample_count / SAMPLES_PER_FRAME;
+
     int error;
-    opus_int16 *input_buf = (opus_int16*) malloc(INPUT_BUFFER_SIZE);
-    OpusEncoder *enc = opus_encoder_create(SAMPLE_RATE, CHANNELS, OPUS_APPLICATION_AUDIO, &error);
-    FILE* file = fopen(pcm_filename, "rb");
-    // int fsize = file_size(file);
-    int curr_packet = 0;
+    OpusEncoder *encoder = opus_encoder_create(SAMPLE_RATE, CHANNELS, OPUS_APPLICATION_AUDIO, &error);
 
     if (error != OPUS_OK) {
         fprintf(stderr, "Failed to initialize Opus encoder (error code = %d)", error);
-        free(input_buf);
-        fclose(file);
+        free(samples);
         return NULL;
     }
 
-    *packet_count = total_packets(file);
-    *packet_lengths = (int*) malloc(sizeof(int) * (*packet_count));
-    unsigned char** output = (unsigned char**) malloc(sizeof(unsigned char*) * (*packet_count));
+    size_t* lengths = (size_t*) malloc(sizeof(size_t) * num_packets);
+    uint8_t* output = (uint8_t*) malloc(sizeof(uint8_t) * num_packets * MAX_PACKET_SIZE);
+    opus_int32 bytes_written = 0;
 
-    //printf("File %s with %d bytes for %d frames\n", pcm_filename, fsize, *packet_count);
-    size_t read;
-
-    while ((read = fread(input_buf, sizeof(opus_int16), CHANNELS * SAMPLES_PER_FRAME, file)) > 0) {
-       if (read < CHANNELS * SAMPLES_PER_FRAME) {
-            for (int i = read; i < CHANNELS * SAMPLES_PER_FRAME; i++) {
-                input_buf[i] = 0;
-            }
-       }
-       output[curr_packet] = (unsigned char*) malloc(sizeof(unsigned char) * OUTPUT_BUFFER_SIZE);
-       int opus_packet_size = opus_encode(enc, input_buf, SAMPLES_PER_FRAME, output[curr_packet], OUTPUT_BUFFER_SIZE);
-       if (opus_packet_size >= 0) {
-           //printf("Read %d values, encoded to %d bytes\n", read, opus_packet_size);
-           (*packet_lengths)[curr_packet] = opus_packet_size;
-           curr_packet++;
-       }
-       else {
-           fprintf(stderr, "Error code %d in packet %d\n", opus_packet_size, curr_packet-1);
-           free(input_buf);
-           free(*packet_lengths);
-           for (int i = 0; i < curr_packet; i++)
-               free(output[i]);
+    for (size_t i = 0; i < num_packets; i++) {
+        opus_int32 packet_size = opus_encode(encoder, samples + i * SAMPLES_PER_FRAME, SAMPLES_PER_FRAME_PER_CHANNEL, output + bytes_written, MAX_PACKET_SIZE);
+        if (packet_size >= 0) {
+            lengths[i] = packet_size;
+            bytes_written += packet_size;
+        }
+        else {
+           fprintf(stderr, "Error code %d in packet %ld\n", packet_size, i);
+           free(samples);
+           free(lengths);
            free(output);
-           fclose(file);
-           opus_encoder_destroy(enc);
+           opus_encoder_destroy(encoder);
            return NULL;
-       }
+        }
     }
 
-    free(input_buf);
-    opus_encoder_destroy(enc);
+    *packet_lengths = lengths;
+    *packet_count = num_packets;
 
-    if (ferror(file)) {
-        fprintf(stderr, "Error reading file %s\n", pcm_filename);
-        free(*packet_lengths);
-        for (int i = 0; i < curr_packet; i++)
-            free(output[i]);
-        free(output);
-        fclose(file);
-        return NULL;
-    }
-    
-    //printf("Total packets: %d\n", curr_packet);
-    fclose(file);
+    free(samples);
+    opus_encoder_destroy(encoder);
     return output;
 }
 
-int main() {
-    int packet_count = 0;
-    int* packet_lengths = NULL;
+int main(int argc, char* argv[]) {
+    size_t packet_count = 0;
+    size_t* packet_lengths = NULL;
 
-    unsigned char** output = get_opus_packets("out.pcm", &packet_count, &packet_lengths);
+    if (argc < 2) {
+        fprintf(stderr, "Missing file argument\n");
+        return 1;
+    }
+
+    uint8_t* output = get_opus_packets(argv[1], &packet_count, &packet_lengths);
     if (output == NULL) {
-        fprintf(stderr, "Error\n");
+        fprintf(stderr, "Opus encoding failed\n");
         return -1;
     }
-    /*
-    printf("Final packet count: %d\n", packet_count);
-    printf("Final packet sizes:");
-    for (int i = 0; i < packet_count; i++) {
-        printf(" %d", packet_lengths[i]);
-    }
-    printf("\n");
 
-    for (int i = 0; i < packet_count; i++)
-    {
-        for (int j = 0; j < packet_lengths[i]; j++)
-        {
-            printf("%d%c", output[i][j], j == packet_lengths[i]-1 ? '\n' : ' ');
-        }
-    }*/
+    size_t total_bytes = 0;
+
+    for (size_t i = 0; i < packet_count; i++) {
+        total_bytes += packet_lengths[i];
+    }
+
+    printf("Final packet count: %ld\n", packet_count);
+    printf("Total compressed bytes: %ld\n", total_bytes);
 
     free(packet_lengths);
-    for (int i = 0; i < packet_count; i++)
-        free(output[i]);
     free(output);
-
     return 0;
 }
