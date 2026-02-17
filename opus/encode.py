@@ -2,6 +2,7 @@ import ctypes
 import os
 import subprocess
 import tempfile
+import time
 import uuid
 
 from typing import List
@@ -24,16 +25,25 @@ _lib.free_buffer.restype = None
 
 
 def _pcm_file_to_opus_packets(pcm_filename: str) -> List[bytes]:
+    start_time = time.perf_counter()
     c_packet_count = ctypes.c_size_t()
     c_packet_lengths = ctypes.POINTER(ctypes.c_size_t)()
     out_ptr = _lib.get_opus_packets(bytes(pcm_filename, encoding="ascii"), ctypes.byref(c_packet_count), ctypes.byref(c_packet_lengths))
     packet_count = c_packet_count.value
+    c_lib_time = time.perf_counter() - start_time
+    logger.info(f"C Opus encoding finished in {c_lib_time:.2f} s.")
 
     offsets = [0] * packet_count
     for i in range(1, packet_count):
         offsets[i] = offsets[i-1] + c_packet_lengths[i-1]
 
+    offset_time = time.perf_counter() - start_time - c_lib_time
+    logger.info(f"Offset computation finished in {offset_time:.2f} s.")
+
     output = [bytes(out_ptr[offsets[i]:offsets[i]+c_packet_lengths[i]]) for i in range(packet_count)]
+    bytes_time = time.perf_counter() - start_time - c_lib_time - offset_time
+    logger.info(f"Bytes objects creation finished in {bytes_time:.2f} s.")
+
     _lib.free_buffer(c_packet_lengths)
     _lib.free_buffer(out_ptr)
     return output
@@ -58,10 +68,14 @@ def _media_file_to_pcm(media_filename: str) -> str:
 
 def encode(media_filename: str) -> List[bytes]:
     logger.info(f"Starting FFmpeg conversion of media file {media_filename} to PCM...")
+
+    start_time = time.perf_counter()
     pcm_filename = _media_file_to_pcm(media_filename)
-    logger.info(f"PCM conversion of {media_filename} finished. Encoding using Opus Codec...")
+    pcm_duration = time.perf_counter() - start_time
+    logger.info(f"PCM conversion of {media_filename} finished in {pcm_duration:.2f} s. Encoding using Opus Codec...")
     result = _pcm_file_to_opus_packets(pcm_filename)
-    logger.info(f"Opus encoding of {media_filename} finished")
+    opus_duration = time.perf_counter() - start_time - pcm_duration
+    logger.info(f"Opus encoding of {media_filename} finished in {opus_duration:.2f} s.")
     os.remove(pcm_filename)
     result.extend(5 * [SILENCE_FRAME])
     return result
