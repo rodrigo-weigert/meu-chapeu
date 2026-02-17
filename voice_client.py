@@ -40,6 +40,7 @@ class VoiceClient:
     _stop_event: threading.Event | None
     _dave_session_manager: DaveSessionManager
     _external_sender_ready: asyncio.Event
+    _identified: bool
     _ws: websockets.ClientConnection
     _sock: socket.socket
     _transport_encryption_mode: str
@@ -78,6 +79,7 @@ class VoiceClient:
         self._stop_event = None
         self._dave_session_manager = DaveSessionManager(self._config.application_id)
         self._external_sender_ready = asyncio.Event()
+        self._identified = False
 
     @property
     def channel_id(self) -> str:
@@ -147,6 +149,10 @@ class VoiceClient:
 
     async def _handle_hello(self, event: VoiceEvent) -> None:
         logger.log("IN", f"HELLO {event}")
+
+        if self._identified:
+            return
+
         heartbeat_interval = event["heartbeat_interval"] / 1000
         await self._identify()
         asyncio.create_task(self._regular_heartbeats(heartbeat_interval))
@@ -158,6 +164,7 @@ class VoiceClient:
 
     async def _handle_ready(self, event: VoiceEvent) -> None:
         logger.log("IN", f"VOICE READY {event}")
+        self._identified = True
         ip, port, ssrc, modes = event["ip"], event["port"], event["ssrc"], event["modes"]
         self._transport_encryption_mode = "aead_aes256_gcm_rtpsize" if "aead_aes256_gcm_rtpsize" in modes else "aead_xchacha20_poly1305_rtpsize"
         self._ssrc = ssrc
