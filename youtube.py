@@ -3,8 +3,6 @@ import tempfile
 import urllib.parse
 import yt_dlp
 import isodate  # type: ignore[import-untyped]
-import opus
-import pickle
 
 from logs import logger as base_logger
 from config import Config
@@ -88,9 +86,6 @@ def download(video_id: str) -> bool:
         logger.error(f"Failed to download video ID {video_id}")
         return False
     logger.info(f"Downloaded video ID {video_id} successfully")
-    packets = opus.encode(str(path))
-    with open(path, "wb") as f:
-        pickle.dump(packets, f)
     return True
 
 

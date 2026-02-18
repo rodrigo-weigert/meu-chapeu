@@ -8,6 +8,7 @@ import threading
 from typing import Tuple, List
 from logs import logger as base_logger
 from dave.session import DaveSessionManager, MediaKey
+from media_file import MediaFile
 
 logger = base_logger.bind(context="UDP")
 
@@ -67,7 +68,7 @@ def _build_audio_packet(payload: bytes, ssrc: int, sequence: int, timestamp: int
     return header + encrypted_payload + trunc_nonce.to_bytes(4, "little")
 
 
-def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int,
+def stream_audio(sock: socket.socket, media_file: MediaFile, ssrc: int,
                  initial_seq: int, encryption_key: List[int], nonce: int,
                  encryption_mode: str, stop_event: threading.Event, dave: DaveSessionManager) -> int:
     logger.info("Starting audio stream")
@@ -75,7 +76,9 @@ def stream_audio(sock: socket.socket, audio_payloads: List[bytes], ssrc: int,
     ts = random.getrandbits(32)  # TODO: should be voice client state
     k = bytes(encryption_key)
 
-    packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode, dave) for (i, payload) in enumerate(audio_payloads))
+    opus_packets = media_file.opus_packets()
+
+    packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode, dave) for (i, payload) in enumerate(opus_packets))
 
     now = time.perf_counter()
     next_time = now + 0.02
