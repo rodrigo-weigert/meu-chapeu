@@ -1,81 +1,134 @@
 import ctypes
 import os
 import subprocess
-import tempfile
-import time
-import uuid
+import threading
 
-from typing import List
+from typing import Iterator
 from logs import logger as base_logger
 
 logger = base_logger.bind(context="OpusEncoder")
 
-SILENCE_FRAME = b'\xf8\xff\xfe'
+_SILENCE_FRAME = b'\xf8\xff\xfe'
+
+_SAMPLING_RATE = 48000
+_CHANNELS = 2
+_PACKET_DURATION_MS = 20
+_SAMPLE_BYTE_SIZE = 2
+_CHUNK_SIZE = _SAMPLING_RATE * _PACKET_DURATION_MS * _CHANNELS * _SAMPLE_BYTE_SIZE // 1000
+_FFMPEG_BUFFER_CHUNKS = 500
+
+# ctypes
 
 _root_path = os.path.dirname(os.path.abspath(__file__))
 _lib = ctypes.cdll.LoadLibrary(os.path.join(_root_path, "opus_encode.so"))
 
-_lib.get_opus_packets.argtypes = [ctypes.POINTER(ctypes.c_char),                    # char* pcm_filename
-                                  ctypes.POINTER(ctypes.c_size_t),                  # size_t* packet_count
-                                  ctypes.POINTER(ctypes.POINTER(ctypes.c_size_t))]  # size_t** packet_length
-_lib.get_opus_packets.restype = ctypes.POINTER(ctypes.c_ubyte)
-
+# free_buffer
 _lib.free_buffer.argtypes = [ctypes.c_void_p]
 _lib.free_buffer.restype = None
 
+# create_encoder
+_lib.create_encoder.argtypes = []
+_lib.create_encoder.restype = ctypes.c_void_p
 
-def _pcm_file_to_opus_packets(pcm_filename: str) -> List[bytes]:
-    start_time = time.perf_counter()
-    c_packet_count = ctypes.c_size_t()
-    c_packet_lengths = ctypes.POINTER(ctypes.c_size_t)()
-    out_ptr = _lib.get_opus_packets(bytes(pcm_filename, encoding="ascii"), ctypes.byref(c_packet_count), ctypes.byref(c_packet_lengths))
-    packet_count = c_packet_count.value
-    c_lib_time = time.perf_counter() - start_time
-    logger.info(f"C Opus encoding finished in {c_lib_time:.2f} s.")
+# destroy_encoder
+_lib.destroy_encoder.argtypes = [ctypes.c_void_p]
+_lib.destroy_encoder.restype = None
 
-    offsets = [0] * packet_count
-    for i in range(1, packet_count):
-        offsets[i] = offsets[i-1] + c_packet_lengths[i-1]
-
-    offset_time = time.perf_counter() - start_time - c_lib_time
-    logger.info(f"Offset computation finished in {offset_time:.2f} s.")
-
-    output = [bytes(out_ptr[offsets[i]:offsets[i]+c_packet_lengths[i]]) for i in range(packet_count)]
-    bytes_time = time.perf_counter() - start_time - c_lib_time - offset_time
-    logger.info(f"Bytes objects creation finished in {bytes_time:.2f} s.")
-
-    _lib.free_buffer(c_packet_lengths)
-    _lib.free_buffer(out_ptr)
-    return output
+# encode
+_lib.encode.argtypes = [
+    ctypes.c_void_p,                 # OpusEncoder* encoder
+    ctypes.c_void_p,                 # opus_int16* pcm
+    ctypes.POINTER(ctypes.c_size_t)  # size_t* out_len
+]
+_lib.encode.restype = ctypes.POINTER(ctypes.c_ubyte)
 
 
-def _media_file_to_pcm(media_filename: str) -> str:
-    pcm_filename = os.path.join(tempfile.gettempdir(), str(uuid.uuid4()))
-    ffmpeg_cmd = ["ffmpeg", "-hide_banner",
-                  "-i", media_filename,
-                  "-f", "s16le",
-                  "-ar", "48000",
-                  "-ac", "2",
-                  "-vn",
-                  "-loglevel", "error",
-                  pcm_filename]
-    proc = subprocess.Popen(ffmpeg_cmd, bufsize=0)
-    exit_code = proc.wait()
-    if exit_code != 0:
-        raise Exception(f"Failed to convert media file to PCM, FFmpeg exit code {exit_code}")
-    return pcm_filename
+class OpusEncodingException(Exception):
+    pass
 
 
-def encode(media_filename: str) -> List[bytes]:
-    logger.info(f"Starting FFmpeg conversion of media file {media_filename} to PCM...")
+class _PCMEncoder:
+    _filename: str
 
-    start_time = time.perf_counter()
-    pcm_filename = _media_file_to_pcm(media_filename)
-    pcm_duration = time.perf_counter() - start_time
-    logger.info(f"PCM conversion of {media_filename} finished in {pcm_duration:.2f} s. Encoding using Opus Codec...")
-    result = _pcm_file_to_opus_packets(pcm_filename)
-    opus_duration = time.perf_counter() - start_time - pcm_duration
-    logger.info(f"Opus encoding of {media_filename} finished in {opus_duration:.2f} s.")
-    os.remove(pcm_filename)
-    result.extend(5 * [SILENCE_FRAME])
-    return result
+    def __init__(self, filename: str) -> None:
+        self._filename = filename
+
+    def pcm_stream(self) -> Iterator[bytes]:
+        proc = subprocess.Popen(
+            self._ffmpeg_cmd(),
+            bufsize=_FFMPEG_BUFFER_CHUNKS * _CHUNK_SIZE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL
+        )
+        assert proc.stdout is not None
+        process_finished = False
+        logger.info(f"Starting FFmpeg PCM stream of {self._filename}")
+        try:
+            while True:
+                packet = proc.stdout.read(_CHUNK_SIZE)
+                if not packet:
+                    break
+                yield packet
+            process_finished = True
+        finally:
+            if process_finished:
+                exit_code = proc.wait()
+                if exit_code != 0:
+                    logger.error(f"FFmpeg terminated with error (exit code {exit_code})")
+                    raise OpusEncodingException(f"FFmpeg terminated with exit code {exit_code}")
+                else:
+                    logger.info("FFmpeg stream finished")
+            else:
+                logger.info("Terminating FFmpeg stream (early interruption)...")
+                proc.terminate()
+                proc.stdout.close()
+                try:
+                    proc.wait(timeout=5)
+                    logger.info("FFmpeg stream terminated")
+                except subprocess.TimeoutExpired:
+                    logger.warning("FFmpeg termination timeout expired, killing process...")
+                    proc.kill()
+                    proc.wait()
+                    logger.info("FFmpeg process killed")
+
+    def _ffmpeg_cmd(self) -> list[str]:
+        return ["ffmpeg",
+                "-hide_banner",
+                "-i", self._filename,
+                "-f", "s16le",
+                "-ar", str(_SAMPLING_RATE),
+                "-ac", str(_CHANNELS),
+                "-vn",
+                "-loglevel", "error",
+                "-"]
+
+
+class _OpusEncoder:
+    _encoder: ctypes.c_void_p
+
+    def __init__(self) -> None:
+        self._encoder = _lib.create_encoder()
+
+    def encode(self, data: bytes) -> bytes:
+        padding = _CHUNK_SIZE - len(data)
+        padded_data = data + b'\x00' * padding
+        buf = (ctypes.c_ubyte * len(padded_data)).from_buffer_copy(padded_data)
+        out_len = ctypes.c_size_t()
+        out_ptr = _lib.encode(self._encoder, buf, ctypes.byref(out_len))
+        if out_ptr:
+            ret = bytes(out_ptr[:out_len.value])
+            _lib.free_buffer(out_ptr)
+            return ret
+        logger.error("Failed to encode packet")
+        raise OpusEncodingException("Failed to encode packet")
+
+    def __del__(self) -> None:
+        _lib.destroy_encoder(self._encoder)
+
+
+def encode(media_filename: str) -> Iterator[bytes]:
+    pcm_enc = _PCMEncoder(media_filename)
+    opus_enc = _OpusEncoder()
+    opus_stream = (opus_enc.encode(pcm_chunk) for pcm_chunk in pcm_enc.pcm_stream())
+    yield from opus_stream
+    yield from [_SILENCE_FRAME] * 5

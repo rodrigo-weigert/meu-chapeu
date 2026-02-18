@@ -189,12 +189,11 @@ class VoiceClient:
 
         logger.info(f"Now playing {media_file}")
         self._stop_event = threading.Event()
-        packets = media_file.packets()
         sent_packets = await asyncio.get_running_loop().run_in_executor(
             self._executor,
             udp.stream_audio,
             self._sock,
-            packets,
+            media_file,
             self._ssrc,
             self._audio_seq,
             self._transport_encryption_key,
