@@ -3,13 +3,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+TAG=$(git rev-parse --short HEAD)
 
 cd "$SCRIPT_DIR"
 
 source ./deploy.env
 
 echo "Building image $IMAGE_NAME..."
-docker build -t "$IMAGE_NAME" .
+docker build -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
 
 echo "Saving image $IMAGE_NAME to $IMAGE_PATH..."
 docker save -o "$IMAGE_PATH" "$IMAGE_NAME"
