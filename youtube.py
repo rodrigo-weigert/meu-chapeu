@@ -1,4 +1,4 @@
-import requests
+import httpx
 import tempfile
 import urllib.parse
 import yt_dlp
@@ -15,6 +15,8 @@ API_INFO_URL = "https://www.googleapis.com/youtube/v3/videos"
 
 logger = base_logger.bind(context="YoutubeDL")
 SAVE_DIR = Path(tempfile.gettempdir()) / 'meu-chapeu'
+
+_client = httpx.Client()
 
 
 class YoutubeDLLogger:
@@ -51,7 +53,7 @@ def video_id_from_search(query: str, config: Config) -> str | None:
               "relevanceLanguage": "pt"}
     headers = {"Accept": "application/json"}
     logger.info(f"Searching YouTube for query '{query}'")
-    res = requests.get(API_SEARCH_URL, headers=headers, params=params)
+    res = _client.get(API_SEARCH_URL, headers=headers, params=params)
     if res.status_code == 200:
         results = res.json()["items"]
         if len(results) > 0:
@@ -116,7 +118,7 @@ def build_media_file(video_id: str, config: Config) -> MediaFile | None:
               "id": video_id}
     headers = {"Accept": "application/json"}
     logger.info(f"Fetching metadata for video ID {video_id}")
-    res = requests.get(API_INFO_URL, headers=headers, params=params)
+    res = _client.get(API_INFO_URL, headers=headers, params=params)
     if res.status_code == 200:
         json = res.json()
         return MediaFile(id=video_id,

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import requests
+import httpx
 import json
 from urllib.parse import urlencode
 
@@ -14,43 +14,31 @@ logger = base_logger.bind(context="HttpClient")
 
 
 class HttpClient:
-    _api_url: str
     _config: Config
+    _api_url: str
+    _aclient: httpx.AsyncClient
+    _client: httpx.Client
 
     def __init__(self, config: Config):
+        headers = {"Authorization": f"Bot {config.api_token}"}
         self._config = config
         self._api_url = f"{config.api_url}/{config.api_version}"
-
-    def _headers(self, auth: bool = False):
-        if auth:
-            return {"Authorization": f"Bot {self._config.api_token}"}
-        return {}
-
-    def get(self, path: str, auth: bool = False) -> Dict[str, Any]:
-        headers = self._headers(auth)
-        return requests.get(f"{self._api_url}{path}", headers=headers).json()
-
-    def post(self, path: str, body: Dict[str, Any]) -> requests.Response:
-        headers = self._headers(True)
-        return requests.post(f"{self._api_url}{path}", headers=headers, json=body)
-
-    def patch(self, path: str, body: Dict[str, Any]) -> requests.Response:
-        headers = self._headers(True)
-        return requests.patch(f"{self._api_url}{path}", headers=headers, json=body)
+        self._aclient = httpx.AsyncClient(headers=headers)
+        self._client = httpx.Client(headers=headers)
 
     def get_gateway_url(self) -> str:
-        base_url = self.get("/gateway")["url"]
+        base_url = self._get("/gateway")["url"]
         params = {"v": self._config.api_version, "encoding": self._config.encoding}
         return f"{base_url}?/{urlencode(params)}"
 
     def create_slash_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
         logger.log("OUT", f"Creating command {json.dumps(params)}")
-        resp = self.post(f"/applications/{self._config.application_id}/commands", body=params).json()
+        resp = self._post(f"/applications/{self._config.application_id}/commands", body=params).json()
         logger.log("IN", f"Command creation response: {resp}")
         return resp
 
     def get_user_voice_channel(self, guild_id: str, user_id: str) -> str | None:
-        resp = self.get(f"/guilds/{guild_id}/voice-states/{user_id}", auth=True)
+        resp = self._get(f"/guilds/{guild_id}/voice-states/{user_id}")
         return resp.get("channel_id")
 
     def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
@@ -65,7 +53,7 @@ class HttpClient:
             flags |= InteractionFlag.EPHEMERAL
         interaction_type = InteractionType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE if deferred else InteractionType.CHANNEL_MESSAGE_WITH_SOURCE
 
-        resp = self.post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
+        resp = self._post(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
 
         success = resp.status_code >= 200 and resp.status_code < 300
         if success:
@@ -81,6 +69,15 @@ class HttpClient:
         respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
 
         logger.log("OUT", f"UPDATING INTERACTION {id}")
-        resp = self.patch(respond_url, {"content": message, "flags": InteractionFlag.SUPRESS_EMBEDS})
+        resp = self._patch(respond_url, {"content": message, "flags": InteractionFlag.SUPRESS_EMBEDS})
         logger.log("IN", f"INTERACTION {id} UPDATE RESPONSE GOT STATUS {resp.status_code}")
         return resp.status_code >= 200 and resp.status_code < 300
+
+    def _get(self, path: str) -> Dict[str, Any]:
+        return self._client.get(f"{self._api_url}{path}").json()
+
+    def _post(self, path: str, body: Dict[str, Any]) -> httpx.Response:
+        return self._client.post(f"{self._api_url}{path}", json=body)
+
+    def _patch(self, path: str, body: Dict[str, Any]) -> httpx.Response:
+        return self._client.patch(f"{self._api_url}{path}", json=body)
