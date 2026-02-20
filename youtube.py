@@ -16,7 +16,7 @@ API_INFO_URL = "https://www.googleapis.com/youtube/v3/videos"
 logger = base_logger.bind(context="YoutubeDL")
 SAVE_DIR = Path(tempfile.gettempdir()) / 'meu-chapeu'
 
-_client = httpx.Client()
+_client = httpx.AsyncClient()
 
 
 class YoutubeDLLogger:
@@ -44,7 +44,7 @@ YDL_OPTS = {
 ydl = yt_dlp.YoutubeDL(params=YDL_OPTS)  # type: ignore[arg-type]
 
 
-def video_id_from_search(query: str, config: Config) -> str | None:
+async def video_id_from_search(query: str, config: Config) -> str | None:
     params = {"part": "snippet",
               "type": "video",
               "key": config.google_api_token,
@@ -53,7 +53,7 @@ def video_id_from_search(query: str, config: Config) -> str | None:
               "relevanceLanguage": "pt"}
     headers = {"Accept": "application/json"}
     logger.info(f"Searching YouTube for query '{query}'")
-    res = _client.get(API_SEARCH_URL, headers=headers, params=params)
+    res = await _client.get(API_SEARCH_URL, headers=headers, params=params)
     if res.status_code == 200:
         results = res.json()["items"]
         if len(results) > 0:
@@ -104,21 +104,21 @@ def video_id_from_url(user_query: str) -> str | None:
     return video_id if len(video_id) == 11 else None
 
 
-def get_video_id(user_query: str, config: Config) -> str | None:
+async def get_video_id(user_query: str, config: Config) -> str | None:
     video_id = video_id_from_url(user_query)
     if video_id is not None:
         logger.info(f"Extracted video ID {video_id} from user query '{user_query}'")
         return video_id
-    return video_id_from_search(user_query, config)
+    return await video_id_from_search(user_query, config)
 
 
-def build_media_file(video_id: str, config: Config) -> MediaFile | None:
+async def build_media_file(video_id: str, config: Config) -> MediaFile | None:
     params = {"part": ["snippet", "contentDetails"],
               "key": config.google_api_token,
               "id": video_id}
     headers = {"Accept": "application/json"}
     logger.info(f"Fetching metadata for video ID {video_id}")
-    res = _client.get(API_INFO_URL, headers=headers, params=params)
+    res = await _client.get(API_INFO_URL, headers=headers, params=params)
     if res.status_code == 200:
         json = res.json()
         return MediaFile(id=video_id,
@@ -131,15 +131,15 @@ def build_media_file(video_id: str, config: Config) -> MediaFile | None:
     return None
 
 
-def get_video_from_user_query(user_query: str, config: Config) -> MediaFile | None:
-    video_id = get_video_id(user_query, config)
+async def get_video_from_user_query(user_query: str, config: Config) -> MediaFile | None:
+    video_id = await get_video_id(user_query, config)
     if video_id is None:
         logger.warning(f"Failed to find video for query '{user_query}'")
         return None
 
-    media_file = build_media_file(video_id, config)
+    media_file = await build_media_file(video_id, config)
     if media_file is None:
         logger.error(f"Failed to retrieve data about video ID {video_id} for query '{user_query}'")
         return None
 
-    return build_media_file(video_id, config)
+    return await build_media_file(video_id, config)
