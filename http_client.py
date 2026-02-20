@@ -41,7 +41,7 @@ class HttpClient:
         resp = await self._aget(f"/guilds/{guild_id}/voice-states/{user_id}")
         return resp.get("channel_id")
 
-    async def respond_interaction_with_message(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
+    async def respond_interaction(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
         id = interaction_event["id"]
         token = interaction_event["token"]
         respond_url = f"/interactions/{id}/{token}/callback"
@@ -63,16 +63,6 @@ class HttpClient:
 
         return success
 
-    async def update_original_interaction_response(self, interaction_event: Event, message: str) -> bool:
-        id = interaction_event["id"]
-        token = interaction_event["token"]
-        respond_url = f"/webhooks/{self._config.application_id}/{token}/messages/@original"
-
-        logger.log("OUT", f"UPDATING INTERACTION {id}")
-        resp = await self._apatch(respond_url, {"content": message, "flags": InteractionFlag.SUPRESS_EMBEDS})
-        logger.log("IN", f"INTERACTION {id} UPDATE RESPONSE GOT STATUS {resp.status_code}")
-        return resp.status_code >= 200 and resp.status_code < 300
-
     def _get(self, path: str) -> Dict[str, Any]:
         return self._client.get(f"{self._api_url}{path}").json()
 
@@ -84,6 +74,3 @@ class HttpClient:
 
     async def _apost(self, path: str, body: Dict[str, Any]) -> httpx.Response:
         return await self._aclient.post(f"{self._api_url}{path}", json=body)
-
-    async def _apatch(self, path: str, body: Dict[str, Any]) -> httpx.Response:
-        return await self._aclient.patch(f"{self._api_url}{path}", json=body)

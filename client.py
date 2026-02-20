@@ -117,19 +117,13 @@ class Client:
         user_id = event["member"]["user"]["id"]
         search_query = event["data"]["options"][0]["value"]
 
-        first_resp_task = asyncio.create_task(self._http_client.respond_interaction_with_message(event, "", deferred=True))
         media_task = asyncio.create_task(youtube.get_video_from_user_query(search_query, self._config))
 
         channel_id = await self._http_client.get_user_voice_channel(guild_id, user_id)
-        first_resp_ok = await first_resp_task
-
-        if not first_resp_ok:
-            media_task.cancel()
-            return
 
         if channel_id is None:
             media_task.cancel()
-            await self._http_client.update_original_interaction_response(event, "You need to be in a channel I can join or have already joined, in the same server you called me.")
+            await self._http_client.respond_interaction(event, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
             return
 
         voice_client = self._voice_clients.get(guild_id)
@@ -139,15 +133,15 @@ class Client:
             self._voice_clients[guild_id] = voice_client
         elif voice_client.channel_id != channel_id:
             media_task.cancel()
-            await self._http_client.update_original_interaction_response(event, "You need to be in the same channel and server I'm currently connected to")
+            await self._http_client.respond_interaction(event, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
             return
 
         media = await media_task
         if media is None:
-            await self._http_client.update_original_interaction_response(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
+            await self._http_client.respond_interaction(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.", ephemeral=True)
             return
 
-        if await self._http_client.update_original_interaction_response(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"):
+        if await self._http_client.respond_interaction(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"):
             await voice_client.enqueue_media(media)
 
     async def _handle_skip(self, event: Event) -> None:
@@ -156,16 +150,16 @@ class Client:
         voice_client = self._voice_clients.get(guild_id)
 
         if voice_client is None:
-            await self._http_client.respond_interaction_with_message(event, "I'm not connected in this server", ephemeral=True)
+            await self._http_client.respond_interaction(event, "I'm not connected in this server", ephemeral=True)
             return
-        elif voice_client.channel_id != self._http_client.get_user_voice_channel(guild_id, user_id):
-            await self._http_client.respond_interaction_with_message(event, "You need to be in the same channel I'm currently connected to", ephemeral=True)
+        elif voice_client.channel_id != await self._http_client.get_user_voice_channel(guild_id, user_id):
+            await self._http_client.respond_interaction(event, "You need to be in the same channel I'm currently connected to", ephemeral=True)
             return
 
         if voice_client.skip_current_media():
-            await self._http_client.respond_interaction_with_message(event, "Skipped")
+            await self._http_client.respond_interaction(event, "Skipped")
         else:
-            await self._http_client.respond_interaction_with_message(event, "Nothing to skip", ephemeral=True)
+            await self._http_client.respond_interaction(event, "Nothing to skip", ephemeral=True)
 
     async def _handle_dispatch(self, event: Event) -> None:
         logger.log("IN", f"DISPATCH: {event}")
