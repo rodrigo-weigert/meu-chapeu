@@ -80,8 +80,7 @@ def stream_audio(sock: socket.socket, media_file: MediaFile, ssrc: int,
 
     packets = (_build_audio_packet(payload, ssrc, initial_seq + i, ts + 960*i, k, nonce+i, encryption_mode, dave) for (i, payload) in enumerate(opus_packets))
 
-    now = time.perf_counter()
-    next_time = now + 0.02
+    next_time = None
     sent_packets = 0
 
     try:
@@ -89,9 +88,14 @@ def stream_audio(sock: socket.socket, media_file: MediaFile, ssrc: int,
             if stop_event.is_set():
                 logger.info("Received stop event, stopping stream")
                 break
+
+            if next_time is None:
+                next_time = time.perf_counter()
+
             sleep_amount = next_time - time.perf_counter()
             if sleep_amount > 0:
                 time.sleep(sleep_amount)
+
             sock.send(packet)
             sent_packets += 1
             next_time += 0.02
