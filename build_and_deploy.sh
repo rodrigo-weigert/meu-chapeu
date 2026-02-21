@@ -13,7 +13,7 @@ echo "Building image $IMAGE_NAME..."
 docker build -t "$IMAGE_NAME:$TAG" -t "$IMAGE_NAME:latest" .
 
 echo "Saving image $IMAGE_NAME to $IMAGE_PATH..."
-docker save -o "$IMAGE_PATH" "$IMAGE_NAME"
+docker save -o "$IMAGE_PATH" "$IMAGE_NAME:$TAG" "$IMAGE_NAME:latest"
 
 echo "Uploading image and .env to remote host..."
 scp "$IMAGE_PATH" "${REMOTE_USER}@${REMOTE_HOST}:$IMAGE_PATH"
@@ -30,5 +30,5 @@ echo "Loading image $IMAGE_PATH..."
 docker load < $IMAGE_PATH
 
 echo "Starting container..."
-docker run -d --name $CONTAINER_NAME --env-file $ENV_PATH --restart unless-stopped -v $LOGS_PATH:/bot/logs $IMAGE_NAME
+docker run -d --name $CONTAINER_NAME --env-file $ENV_PATH --restart unless-stopped -v $LOGS_PATH:/bot/logs $IMAGE_NAME:$TAG
 EOF
