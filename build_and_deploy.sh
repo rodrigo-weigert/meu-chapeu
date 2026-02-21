@@ -30,5 +30,5 @@ echo "Loading image $IMAGE_PATH..."
 docker load < $IMAGE_PATH
 
 echo "Starting container..."
-docker run -d --name $CONTAINER_NAME --env-file $ENV_PATH --restart unless-stopped -v $LOGS_PATH:/bot/logs $IMAGE_NAME:$TAG
+docker run -d --name $CONTAINER_NAME --env-file $ENV_PATH --restart unless-stopped -v $LOGS_PATH:/bot/logs --network=host --cap-add=sys_nice $IMAGE_NAME:$TAG
 EOF
