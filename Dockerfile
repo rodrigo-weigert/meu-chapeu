@@ -31,4 +31,6 @@ COPY --from=opus_builder /opus/opus_encode.so ./opus/
 COPY --from=dave_builder /dave/openmls/target/wheels/*.whl /tmp/
 RUN pip install /tmp/*.whl
 
+STOPSIGNAL SIGINT
+
 CMD ["nice", "-n", "-10", "python", "main.py", "--logfile", "/bot/logs/meu-chapeu.log"]
