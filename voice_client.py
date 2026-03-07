@@ -159,7 +159,7 @@ class VoiceClient:
 
     def _prepare_socket(self, ip: str, port: int) -> None:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.bind(("0.0.0.0", 2917))  # TODO should use a port range to support multiple simultaneous voice connections
+        self._sock.bind(("0.0.0.0", 0))
         self._sock.connect((ip, port))
 
     async def _handle_ready(self, event: VoiceEvent) -> None:
