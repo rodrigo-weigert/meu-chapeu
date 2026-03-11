@@ -141,8 +141,8 @@ class Client:
             await self._http_client.respond_interaction(event, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.", ephemeral=True)
             return
 
-        if await self._http_client.respond_interaction(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"):
-            await voice_client.enqueue_media(media)
+        asyncio.create_task(self._http_client.respond_interaction(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
+        await voice_client.enqueue_media(media)
 
     async def _handle_skip(self, event: Event) -> None:
         guild_id = event["guild_id"]

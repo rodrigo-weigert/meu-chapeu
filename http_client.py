@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import asyncio
 import httpx
 import json
 from urllib.parse import urlencode
@@ -53,7 +54,11 @@ class HttpClient:
             flags |= InteractionFlag.EPHEMERAL
         interaction_type = InteractionType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE if deferred else InteractionType.CHANNEL_MESSAGE_WITH_SOURCE
 
-        resp = await self._apost(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
+        try:
+            resp = await self._apost(respond_url, {"type": interaction_type, "data": {"content": message, "flags": flags}})
+        except httpx.TimeoutException as e:
+            logger.warning(f"INTERACTION {id} RESPONSE TIMEOUT: {e}")
+            return False
 
         success = resp.status_code >= 200 and resp.status_code < 300
         if success:
@@ -72,5 +77,5 @@ class HttpClient:
     async def _aget(self, path: str) -> Dict[str, Any]:
         return (await self._aclient.get(f"{self._api_url}{path}")).json()
 
-    async def _apost(self, path: str, body: Dict[str, Any]) -> httpx.Response:
-        return await self._aclient.post(f"{self._api_url}{path}", json=body)
+    async def _apost(self, path: str, body: Dict[str, Any], timeout: float = 3.0) -> httpx.Response:
+        return await self._aclient.post(f"{self._api_url}{path}", json=body, timeout=timeout)
