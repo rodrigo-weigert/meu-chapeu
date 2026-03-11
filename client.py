@@ -163,7 +163,7 @@ class Client:
         user_id = event["member"]["user"]["id"]
         voice_client = self._voice_clients.get(guild_id)
 
-        if voice_client is None:
+        if voice_client is None or voice_client.closed:
             await self._http_client.respond_interaction(event, "I'm not connected in this server", ephemeral=True)
             return
         elif voice_client.channel_id != await self._http_client.get_user_voice_channel(guild_id, user_id):
