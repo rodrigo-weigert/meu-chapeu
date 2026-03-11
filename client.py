@@ -98,20 +98,33 @@ class Client:
         await asyncio.sleep(initial_wait)
         self._heartbeat_task = asyncio.create_task(self._regular_heartbeats(heartbeat_interval))
 
+    def _handle_user_voice_state_update(self, event: Event) -> None:
+        username = event["member"]["user"]["username"]
+        relevant_fields = {field: event[field] for field in ["self_mute", "self_deaf", "self_stream", "guild_id", "channel_id", "user_id"] if field in event}
+
+        logger.log("IN", f"DISPATCH - USER VOICE STATE UPDATE ({username}): {relevant_fields}")
+
     def _handle_voice_state_update(self, event: Event) -> None:
         if event["member"]["user"]["id"] != self._config.application_id:
-            return  # We receive updates for all guild users
+            self._handle_user_voice_state_update(event)
+            return
+
+        logger.log("IN", f"DISPATCH - BOT VOICE STATE UPDATE: {event}")
+
         guild_id = event["guild_id"]
         fut = self._voice_state_updates.pop(guild_id, None)
         if fut:
             fut.set_result(event)
 
     def _handle_voice_server_update(self, event: Event) -> None:
+        logger.log("IN", f"DISPATCH - VOICE SERVER UPDATE: {event}")
+
         guild_id = event["guild_id"]
         fut = self._voice_server_updates.pop(guild_id, None)
         if fut:
             fut.set_result(event)
 
+    # TODO: receive only what's actually required instead of entire event
     async def _handle_play(self, event: Event) -> None:
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
@@ -144,6 +157,7 @@ class Client:
         asyncio.create_task(self._http_client.respond_interaction(event, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
         await voice_client.enqueue_media(media)
 
+    # TODO: receive only what's actually required instead of entire event
     async def _handle_skip(self, event: Event) -> None:
         guild_id = event["guild_id"]
         user_id = event["member"]["user"]["id"]
@@ -161,26 +175,35 @@ class Client:
         else:
             await self._http_client.respond_interaction(event, "Nothing to skip", ephemeral=True)
 
+    async def _handle_interaction(self, event: Event) -> None:
+        command_name = event["data"]["name"]
+        username = event["member"]["user"]["username"]
+        guild_id = event["guild_id"]
+        query = event["data"]["options"][0]["value"] if command_name == "play" else None
+
+        match command_name:
+            case "play":
+                logger.log("IN", f"<blue>NEW INTERACTION (/play)</blue>: guild_id = {guild_id}, username = {username}, query = {query}")
+                await self._handle_play(event)
+            case "skip":
+                logger.log("IN", f"<blue>NEW INTERACTION (/skip)</blue>: guild_id = {guild_id}, username = {username}")
+                await self._handle_skip(event)
+
     async def _handle_dispatch(self, event: Event) -> None:
-        logger.log("IN", f"DISPATCH: {event}")
         match event.name:
             case "READY":
+                logger.log("IN", f"DISPATCH - READY: {event}")
                 self._session_id = event["session_id"]
                 self._resume_url = event["resume_gateway_url"]
                 self._identified = True
             case "INTERACTION_CREATE":
-                command_name = event["data"]["name"]
-                match command_name:
-                    case "play":
-                        await self._handle_play(event)
-                    case "skip":
-                        await self._handle_skip(event)
+                await self._handle_interaction(event)
             case "VOICE_STATE_UPDATE":
                 self._handle_voice_state_update(event)
             case "VOICE_SERVER_UPDATE":
                 self._handle_voice_server_update(event)
             case "RESUMED":
-                logger.info("Connection resumed successfully")
+                logger.log("IN", f"DISPATCH - RESUMED: {event}")
 
     async def _join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient:
         state_future = asyncio.get_running_loop().create_future()

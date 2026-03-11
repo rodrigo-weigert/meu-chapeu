@@ -45,5 +45,8 @@ class Event:
     def __getitem__(self, key: str) -> Any:
         return self._parsed[key]
 
+    def __contains__(self, key: str) -> bool:
+        return key in self._parsed
+
     def __str__(self) -> str:
         return f"Opcode: {self.opcode}, Seq: {self.seq_num}, Name: {self.name}, Data: {self._parsed}"
