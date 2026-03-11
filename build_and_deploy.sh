@@ -23,7 +23,7 @@ ssh -q "${REMOTE_USER}@${REMOTE_HOST}" <<EOF
 set -e
 
 echo "Stopping and removing container $CONTAINER_NAME..."
-docker stop -s SIGINT -t 20 $CONTAINER_NAME || true
+docker stop $CONTAINER_NAME || true
 docker rm $CONTAINER_NAME || true
 
 echo "Loading image $IMAGE_PATH..."
