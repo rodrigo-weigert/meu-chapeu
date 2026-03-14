@@ -1,3 +1,4 @@
+from arguments import args
 import asyncio
 import json
 import random
@@ -26,6 +27,7 @@ class Client:
     _voice_server_updates: Dict[str, asyncio.Future[Event]]
     _identified: bool
     _closed: bool
+    _waiting_heartbeat_ack: bool
     _ws: websockets.ClientConnection
     _session_id: str
     _resume_url: str
@@ -43,6 +45,7 @@ class Client:
         self._voice_server_updates = {}
         self._identified = False
         self._closed = False
+        self._waiting_heartbeat_ack = False
 
     async def start(self) -> None:
         logger.info("Bot starting")
@@ -60,12 +63,22 @@ class Client:
         await self._ws.send(json.dumps(payload))
 
     async def _send_heartbeat(self) -> None:
+        if self._waiting_heartbeat_ack:
+            logger.warning("Last heartbeat was not acknowledged")
         try:
+            self._waiting_heartbeat_ack = True
             await self.send(OpCode.HEARTBEAT, self._last_seq)
         except websockets.exceptions.ConnectionClosed:
             logger.warning("Could not send heartbeat: connection is closed (reconnecting?)")
+            self._waiting_heartbeat_ack = False
             return
-        logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
+        if args.log_heartbeats:
+            logger.log("OUT", f"HEARTBEAT last_seq = {self._last_seq}")
+
+    def _handle_heartbeat_ack(self):
+        self._waiting_heartbeat_ack = False
+        if args.log_heartbeats:
+            logger.log("IN", "HEARTBEAT ACK")
 
     async def _regular_heartbeats(self, heartbeat_interval) -> None:
         try:
@@ -314,7 +327,7 @@ class Client:
                 case OpCode.HELLO:
                     asyncio.create_task(self._handle_hello(event))
                 case OpCode.HEARTBEAT_ACK:
-                    logger.log("IN", "HEARTBEAT ACK")  # TODO: handle lack of heartbeat ack (zombie connection)
+                    self._handle_heartbeat_ack()
                 case OpCode.HEARTBEAT:
                     await self._send_heartbeat()
                 case OpCode.DISPATCH:
