@@ -8,6 +8,7 @@ use openmls::{prelude::{*, tls_codec::*}};
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_traits::signatures::Signer;
+use openmls::prelude::hash_ref::ProposalRef;
 
 const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMP256_AES128GCM_SHA256_P256;
 
@@ -271,6 +272,17 @@ impl DaveSession {
                 panic!("Failed to process commit message: {:?}", e)
             }
         }
+    }
+
+    fn remove_proposals(&mut self, proposal_refs: &[u8]) {
+        let proposal_refs = ProposalRef::tls_deserialize_exact(proposal_refs)
+            .expect("Failed to deserialize proposal refs");
+
+        self.mls_group
+            .as_mut()
+            .expect("Cannot revoke proposals: no MLS group")
+            .remove_pending_proposal(self.provider.storage(), &proposal_refs)
+            .expect("Failed to revoke proposals");
     }
 }
 

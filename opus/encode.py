@@ -1,7 +1,6 @@
 import ctypes
 import os
 import subprocess
-import threading
 
 from typing import Iterator
 from logs import logger as base_logger

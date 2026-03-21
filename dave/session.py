@@ -129,6 +129,12 @@ class DaveSessionManager:
         self._nonce = 0
         self._pending_transitions.clear()
 
+    def revoke_proposals(self, proposal_refs: bytes) -> None:
+        if self._invalidated:
+            return
+
+        self._dave_session.remove_proposals(proposal_refs)
+
     def _get_and_advance_nonce(self) -> Tuple[int, int]:
         current_nonce = self._nonce & 0xFFFFFFFF
         current_gen = self._nonce >> 24

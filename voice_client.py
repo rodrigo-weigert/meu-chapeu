@@ -301,8 +301,9 @@ class VoiceClient:
                     logger.log("OUT", "DAVE MLS COMMIT WELCOME")
                 else:
                     logger.info("Proposal processing skipped")
-            case 1:  # Revoke
-                raise NotImplementedError("No support for revoking proposals")
+            case 1:  # Revoke - note: untested
+                self._dave_session_manager.revoke_proposals(event["proposal_refs"])
+                logger.info("Proposal revocation successful")
             case _:
                 raise ValueError(f"Unknown DAVE MLS PROPOSALS operation type: {operation_type}")
 
