@@ -18,6 +18,8 @@ construct==2.10.70
     # via -r requirements.in
 cryptography==47.0.0
     # via -r requirements.in
+deno==2.7.12
+    # via -r requirements.in
 h11==0.16.0
     # via httpcore
 httpcore==1.0.9
