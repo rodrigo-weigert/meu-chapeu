@@ -1,3 +1,4 @@
 construct-typing
 types-yt-dlp
 typing_extensions
+pip-tools
