@@ -1,7 +1,7 @@
 # ---- opus module build stage ----
 FROM buildpack-deps:bookworm AS opus_builder
 
-RUN apt update && apt install -y libopus-dev && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install -y --no-install-recommends libopus-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /opus
 COPY ./opus/ .
 RUN make
@@ -11,7 +11,7 @@ FROM python:3.12-slim AS dave_builder
 
 WORKDIR /dave/openmls
 
-RUN apt update && apt install -y curl build-essential
+RUN apt update && apt install -y --no-install-recommends curl build-essential
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 COPY ./dave/openmls .
@@ -22,7 +22,7 @@ FROM python:3.12-slim
 
 WORKDIR /bot
 
-RUN apt update && apt install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
