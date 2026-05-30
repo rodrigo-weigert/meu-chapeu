@@ -1,3 +1,4 @@
+from arguments import args
 import dotenv
 import os
 
@@ -47,3 +48,6 @@ class Config:
     @property
     def google_api_token(self):
         return self._google_api_token
+
+
+config = Config(env_file=args.env)

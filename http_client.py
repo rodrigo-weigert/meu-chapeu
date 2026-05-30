@@ -4,7 +4,7 @@ import httpx
 import json
 from urllib.parse import urlencode
 
-from config import Config
+from config import config
 from typing import Dict, Any
 from logs import logger as base_logger
 from interactions import InteractionType, InteractionFlag
@@ -13,26 +13,24 @@ logger = base_logger.bind(context="HttpClient")
 
 
 class HttpClient:
-    _config: Config
     _api_url: str
     _aclient: httpx.AsyncClient
     _client: httpx.Client
 
-    def __init__(self, config: Config):
+    def __init__(self):
         headers = {"Authorization": f"Bot {config.api_token}"}
-        self._config = config
         self._api_url = f"{config.api_url}/{config.api_version}"
         self._aclient = httpx.AsyncClient(headers=headers)
         self._client = httpx.Client(headers=headers)
 
     def get_gateway_url(self) -> str:
         base_url = self._get("/gateway")["url"]
-        params = {"v": self._config.api_version, "encoding": self._config.encoding}
+        params = {"v": config.api_version, "encoding": config.encoding}
         return f"{base_url}?/{urlencode(params)}"
 
     def create_slash_command(self, params: Dict[str, Any]) -> Dict[str, Any]:
         logger.log("OUT", f"Creating command {json.dumps(params)}")
-        resp = self._post(f"/applications/{self._config.application_id}/commands", body=params).json()
+        resp = self._post(f"/applications/{config.application_id}/commands", body=params).json()
         logger.log("IN", f"Command creation response: {resp}")
         return resp
 

@@ -8,7 +8,7 @@ import websockets
 import youtube
 
 from typing import Dict, Any, Set
-from config import Config
+from config import config
 from voice_client import VoiceClient
 from http_client import HttpClient
 from logs import logger as base_logger
@@ -98,7 +98,6 @@ class Client:
     _http_client: HttpClient
     _url: str
     _intents: int
-    _config: Config
     _last_seq: int | None
     _voice_clients: Dict[str, VoiceClient]
     _voice_state_updates: Dict[str, asyncio.Future[_Event]]
@@ -111,11 +110,10 @@ class Client:
     _resume_url: str
     _heartbeat_task: asyncio.Task | None
 
-    def __init__(self, http_client: HttpClient, intents: int, config: Config) -> None:
+    def __init__(self, http_client: HttpClient, intents: int) -> None:
         self._http_client = http_client
         self._url = http_client.get_gateway_url()
         self._intents = intents
-        self._config = config
 
         self._last_seq = None
         self._voice_clients = {}
@@ -167,7 +165,7 @@ class Client:
             logger.info("Heartbeat task cancelled")
 
     async def _identify(self) -> None:
-        data = {"token": self._config.api_token,
+        data = {"token": config.api_token,
                 "intents": self._intents,
                 "properties": {"os": "linux",
                                "browser": "meu_chapeu",
@@ -196,7 +194,7 @@ class Client:
         logger.log("IN", f"DISPATCH - USER VOICE STATE UPDATE ({username}): {relevant_fields}")
 
     def _handle_voice_state_update(self, event: _Event) -> None:
-        if event["member"]["user"]["id"] != self._config.application_id:
+        if event["member"]["user"]["id"] != config.application_id:
             self._handle_user_voice_state_update(event)
             return
 
@@ -216,7 +214,7 @@ class Client:
             fut.set_result(event)
 
     async def _handle_play(self, interaction: UserInteraction) -> None:
-        media_task = asyncio.create_task(youtube.get_video_from_user_query(interaction.options["query"], self._config))
+        media_task = asyncio.create_task(youtube.get_video_from_user_query(interaction.options["query"]))
 
         channel_id = await self._http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id)
 
@@ -306,8 +304,7 @@ class Client:
                          server_resp["endpoint"],
                          state_resp["session_id"],
                          server_resp["token"],
-                         lambda: self._leave_voice_channel(guild_id),
-                         self._config)
+                         lambda: self._leave_voice_channel(guild_id))
 
         logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
 
@@ -339,7 +336,7 @@ class Client:
                 logger.warning("Reconnection failed, retrying after 30 seconds...")
                 await asyncio.sleep(30)
 
-        await self._send(_OpCode.RESUME, {"token": self._config.api_token,
+        await self._send(_OpCode.RESUME, {"token": config.api_token,
                                           "session_id": self._session_id,
                                           "seq": self._last_seq})
         logger.log("OUT", f"RESUME session_id = {self._session_id}, seq = {self._last_seq}")

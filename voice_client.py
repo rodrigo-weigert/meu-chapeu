@@ -8,7 +8,7 @@ import websockets
 
 from voice_event import VoiceEvent, VoiceOpCode
 from typing import Any, List, Callable, Awaitable
-from config import Config
+from config import config
 from logs import logger as base_logger
 from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
@@ -25,7 +25,6 @@ class VoiceClient:
     _session_id: str
     _token: str
     _on_close: Callable[[], Awaitable[Any]]
-    _config: Config
     _ssrc: int
     _audio_seq: int
     _last_seq: int
@@ -55,7 +54,6 @@ class VoiceClient:
         session_id: str,
         token: str,
         on_close: Callable[[], Awaitable[Any]],
-        config: Config,
     ) -> None:
         self._guild_id = guild_id
         self._channel_id = channel_id
@@ -63,7 +61,6 @@ class VoiceClient:
         self._session_id = session_id
         self._token = token
         self._on_close = on_close
-        self._config = config
 
         self._ssrc = 0
         self._audio_seq = random.getrandbits(32)
@@ -77,7 +74,7 @@ class VoiceClient:
         self._player = asyncio.create_task(self._play_loop())
         self._media_queue = asyncio.Queue()
         self._stop_event = None
-        self._dave_session_manager = DaveSessionManager(self._config.application_id)
+        self._dave_session_manager = DaveSessionManager(config.application_id)
         self._external_sender_ready = asyncio.Event()
         self._identified = False
 
@@ -135,7 +132,7 @@ class VoiceClient:
         data = {
             "token": self._token,
             "server_id": self._guild_id,
-            "user_id": self._config.application_id,
+            "user_id": config.application_id,
             "session_id": self._session_id,
             "max_dave_protocol_version": 1,
         }
@@ -450,9 +447,9 @@ class VoiceClient:
     async def _disconnect_after_delay(self) -> None:
         logger.info("Idle timer started")
         try:
-            await asyncio.sleep(self._config.idle_timeout)
+            await asyncio.sleep(config.idle_timeout)
             if not self._closed:
-                logger.info(f"Bot was idle for {self._config.idle_timeout} seconds, disconnecting")
+                logger.info(f"Bot was idle for {config.idle_timeout} seconds, disconnecting")
                 await self._close()
         except asyncio.CancelledError:
             logger.info("Idle timer cancelled")

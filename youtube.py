@@ -5,7 +5,7 @@ import yt_dlp
 import isodate  # type: ignore[import-untyped]
 
 from logs import logger as base_logger
-from config import Config
+from config import config
 from media_file import MediaFile
 from pathlib import Path
 from arguments import args
@@ -44,7 +44,7 @@ YDL_OPTS = {
 ydl = yt_dlp.YoutubeDL(params=YDL_OPTS)  # type: ignore[arg-type]
 
 
-async def video_id_from_search(query: str, config: Config) -> str | None:
+async def video_id_from_search(query: str) -> str | None:
     params = {"part": "snippet",
               "type": "video",
               "key": config.google_api_token,
@@ -104,15 +104,15 @@ def video_id_from_url(user_query: str) -> str | None:
     return video_id if len(video_id) == 11 else None
 
 
-async def get_video_id(user_query: str, config: Config) -> str | None:
+async def get_video_id(user_query: str) -> str | None:
     video_id = video_id_from_url(user_query)
     if video_id is not None:
         logger.info(f"Extracted video ID {video_id} from user query '{user_query}'")
         return video_id
-    return await video_id_from_search(user_query, config)
+    return await video_id_from_search(user_query)
 
 
-async def build_media_file(video_id: str, config: Config) -> MediaFile | None:
+async def build_media_file(video_id: str) -> MediaFile | None:
     params = {"part": ["snippet", "contentDetails"],
               "key": config.google_api_token,
               "id": video_id}
@@ -131,15 +131,15 @@ async def build_media_file(video_id: str, config: Config) -> MediaFile | None:
     return None
 
 
-async def get_video_from_user_query(user_query: str, config: Config) -> MediaFile | None:
-    video_id = await get_video_id(user_query, config)
+async def get_video_from_user_query(user_query: str) -> MediaFile | None:
+    video_id = await get_video_id(user_query)
     if video_id is None:
         logger.warning(f"Failed to find video for query '{user_query}'")
         return None
 
-    media_file = await build_media_file(video_id, config)
+    media_file = await build_media_file(video_id)
     if media_file is None:
         logger.error(f"Failed to retrieve data about video ID {video_id} for query '{user_query}'")
         return None
 
-    return await build_media_file(video_id, config)
+    return await build_media_file(video_id)
