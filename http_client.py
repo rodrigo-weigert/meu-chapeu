@@ -5,7 +5,6 @@ import json
 from urllib.parse import urlencode
 
 from config import Config
-from event import Event
 from typing import Dict, Any
 from logs import logger as base_logger
 from interactions import InteractionType, InteractionFlag
@@ -41,9 +40,7 @@ class HttpClient:
         resp = await self._aget(f"/guilds/{guild_id}/voice-states/{user_id}")
         return resp.get("channel_id")
 
-    async def respond_interaction(self, interaction_event: Event, message: str, ephemeral=False, deferred=False) -> bool:
-        id = interaction_event["id"]
-        token = interaction_event["token"]
+    async def respond_interaction(self, id: str, token: str, message: str, ephemeral=False, deferred=False) -> bool:
         respond_url = f"/interactions/{id}/{token}/callback"
         flags = InteractionFlag.SUPRESS_EMBEDS
 
