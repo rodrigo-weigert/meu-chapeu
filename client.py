@@ -1,14 +1,13 @@
 from arguments import args
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum, unique
 import asyncio
-import http_client
 import json
 import random
 import websockets
-import youtube
 
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Protocol
 from config import config
 from voice_client import VoiceClient
 from logs import logger as base_logger
@@ -94,7 +93,22 @@ class UserInteraction:
         )
 
 
+class VoiceService(Protocol):
+    async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient | None:
+        ...
+
+    def get_connected_voice_client(self, guild_id: str) -> VoiceClient | None:
+        ...
+
+
+class UserInteractionHandler(ABC):
+    @abstractmethod
+    async def handle_interaction(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
+        pass
+
+
 class Client:
+    _user_interaction_handler: UserInteractionHandler
     _url: str
     _intents: int
     _last_seq: int | None
@@ -109,8 +123,9 @@ class Client:
     _resume_url: str
     _heartbeat_task: asyncio.Task | None
 
-    def __init__(self, intents: int) -> None:
-        self._url = http_client.get_gateway_url()
+    def __init__(self, gateway_url: str, user_interaction_handler: UserInteractionHandler, intents: int) -> None:
+        self._user_interaction_handler = user_interaction_handler
+        self._url = gateway_url
         self._intents = intents
 
         self._last_seq = None
@@ -131,6 +146,47 @@ class Client:
         finally:
             self._closed = True
             await self._ws.close()
+
+    def get_connected_voice_client(self, guild_id: str) -> VoiceClient | None:
+        vc = self._voice_clients.get(guild_id)
+        if vc is not None and not vc.closed:
+            return vc
+        return None
+
+    async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient | None:
+        existing_client = self.get_connected_voice_client(guild_id)
+        if existing_client is not None:
+            if existing_client.channel_id == channel_id:
+                return existing_client
+            return None
+
+        state_future = asyncio.get_running_loop().create_future()
+        server_future = asyncio.get_running_loop().create_future()
+        self._voice_state_updates[guild_id] = state_future
+        self._voice_server_updates[guild_id] = server_future
+
+        vsu_payload = {"guild_id": guild_id,
+                       "channel_id": channel_id,
+                       "self_mute": False,
+                       "self_deaf": True}
+        logger.log("OUT", f"VOICE_STATE_UPDATE: {vsu_payload}")
+        await self._send(_OpCode.VOICE_STATE_UPDATE, vsu_payload)
+
+        # TODO handle timeouts
+        state_resp = await state_future
+        server_resp = await server_future
+
+        vc = VoiceClient(guild_id,
+                         channel_id,
+                         server_resp["endpoint"],
+                         state_resp["session_id"],
+                         server_resp["token"],
+                         lambda: self._leave_voice_channel(guild_id))
+
+        logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
+        self._voice_clients[guild_id] = vc
+        asyncio.create_task(vc.start())
+        return vc
 
     async def _send(self, op: _OpCode, data: Any) -> None:
         payload = {"op": op.value, "d": data}
@@ -211,58 +267,11 @@ class Client:
         if fut:
             fut.set_result(event)
 
-    async def _handle_play(self, interaction: UserInteraction) -> None:
-        media_task = asyncio.create_task(youtube.get_video_from_user_query(interaction.options["query"]))
-
-        channel_id = await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id)
-
-        if channel_id is None:
-            media_task.cancel()
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
-            return
-
-        voice_client = self._voice_clients.get(interaction.guild_id)
-
-        if voice_client is None or voice_client.closed:
-            voice_client = await self._join_voice_channel(interaction.guild_id, channel_id)
-            self._voice_clients[interaction.guild_id] = voice_client
-        elif voice_client.channel_id != channel_id:
-            media_task.cancel()
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
-            return
-
-        media = await media_task
-        if media is None:
-            await http_client.respond_interaction(interaction.id, interaction.token, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.", ephemeral=True)
-            return
-
-        asyncio.create_task(http_client.respond_interaction(interaction.id, interaction.token, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
-        await voice_client.enqueue_media(media)
-
-    async def _handle_skip(self, interaction: UserInteraction) -> None:
-        voice_client = self._voice_clients.get(interaction.guild_id)
-
-        if voice_client is None or voice_client.closed:
-            await http_client.respond_interaction(interaction.id, interaction.token, "I'm not connected in this server", ephemeral=True)
-            return
-        elif voice_client.channel_id != await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id):
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel I'm currently connected to", ephemeral=True)
-            return
-
-        if voice_client.skip_current_media():
-            await http_client.respond_interaction(interaction.id, interaction.token, "Skipped")
-        else:
-            await http_client.respond_interaction(interaction.id, interaction.token, "Nothing to skip", ephemeral=True)
-
     async def _handle_interaction(self, event: _Event) -> None:
         interaction = UserInteraction._from_event(event)
         logger.log("IN", f"<green><b>NEW INTERACTION</b></green>: {interaction}")
 
-        match interaction.name:
-            case "play":
-                await self._handle_play(interaction)
-            case "skip":
-                await self._handle_skip(interaction)
+        await self._user_interaction_handler.handle_interaction(interaction, self)
 
     async def _handle_dispatch(self, event: _Event) -> None:
         match event.name:
@@ -279,35 +288,6 @@ class Client:
                 self._handle_voice_server_update(event)
             case "RESUMED":
                 logger.log("IN", f"DISPATCH - RESUMED: {event}")
-
-    async def _join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient:
-        state_future = asyncio.get_running_loop().create_future()
-        server_future = asyncio.get_running_loop().create_future()
-        self._voice_state_updates[guild_id] = state_future
-        self._voice_server_updates[guild_id] = server_future
-
-        vsu_payload = {"guild_id": guild_id,
-                       "channel_id": channel_id,
-                       "self_mute": False,
-                       "self_deaf": True}
-        logger.log("OUT", f"VOICE_STATE_UPDATE: {vsu_payload}")
-        await self._send(_OpCode.VOICE_STATE_UPDATE, vsu_payload)
-
-        # TODO handle timeouts
-        state_resp = await state_future
-        server_resp = await server_future
-
-        vc = VoiceClient(guild_id,
-                         channel_id,
-                         server_resp["endpoint"],
-                         state_resp["session_id"],
-                         server_resp["token"],
-                         lambda: self._leave_voice_channel(guild_id))
-
-        logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
-
-        asyncio.create_task(vc.start())
-        return vc
 
     async def _leave_voice_channel(self, guild_id: str) -> None:
         vsu_payload = {"guild_id": guild_id,

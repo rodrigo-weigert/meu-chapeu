@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import httpx
 import json
 from urllib.parse import urlencode
