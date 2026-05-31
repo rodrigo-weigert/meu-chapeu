@@ -104,7 +104,7 @@ class VoiceService(Protocol):
 class UserInteractionHandler(ABC):
     @abstractmethod
     async def handle_interaction(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
-        pass
+        ...
 
 
 class Client:

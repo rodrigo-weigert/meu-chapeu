@@ -1,6 +1,6 @@
 import asyncio
 import http_client
-import youtube
+import media_fetcher
 
 from client import UserInteraction, UserInteractionHandler, VoiceService
 
@@ -14,7 +14,7 @@ class MusicPlayerBot(UserInteractionHandler):
                 await self._handle_skip(interaction, voice_service)
 
     async def _handle_play(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
-        media_task = asyncio.create_task(youtube.get_video_from_user_query(interaction.options["query"]))
+        media_task = asyncio.create_task(media_fetcher.fetch_media_for_query(interaction.options["query"]))
 
         channel_id = await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id)
 
