@@ -3,29 +3,110 @@ import http_client
 import media_fetcher
 
 from client import UserInteraction, UserInteractionHandler, VoiceService
+from voice_client import VoiceClient
+from media_file import MediaFile
+from logs import logger as base_logger
+from typing import Dict
+
+
+class _MusicSession:
+    _media_queue: asyncio.Queue
+    _vc: VoiceClient
+    _closed: bool
+    _task: asyncio.Task
+
+    def __init__(self, voice_client: VoiceClient) -> None:
+        self._media_queue = asyncio.Queue()
+        self._vc = voice_client
+        self._closed = False
+        self._task = asyncio.create_task(self._start())
+
+        self._logger = base_logger.bind(context=f"MusicSession:{voice_client.guild_id}")
+
+    def close(self) -> None:
+        self._closed = True
+        self._task.cancel()
+
+    @property
+    def channel_id(self) -> str:
+        return self._vc.channel_id
+
+    def add_to_queue(self, media_file: MediaFile) -> None:
+        self._ensure_not_closed()
+
+        self._logger.info(f"Adding media {media_file.title} to the queue")
+        self._media_queue.put_nowait(media_file)
+
+    def skip_current(self) -> bool:
+        self._ensure_not_closed()
+
+        skipped = self._vc.skip_current_audio()
+        if skipped:
+            self._logger.info("Skipped current media")
+        else:
+            self._logger.info("Nothing to skip")
+        return skipped
+
+    async def _start(self) -> None:
+        self._logger.info("Starting music session")
+        await self._session_loop()
+
+    def _ensure_not_closed(self) -> None:
+        if self._closed:
+            raise Exception("Music session is closed")
+
+    async def _session_loop(self) -> None:
+        try:
+            while not self._vc.closed:
+                self._logger.info("Waiting for next media")
+                media_file = await self._media_queue.get()
+
+                await self._vc.play_audio(media_file)
+        except asyncio.CancelledError:
+            pass
+        self._logger.info("Session closed")
+        self._closed = True
 
 
 class MusicPlayerBot(UserInteractionHandler):
+    _sessions: Dict[str, _MusicSession]
+
+    def __init__(self):
+        self._sessions = {}
+
     async def handle_interaction(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
         match interaction.name:
             case "play":
                 await self._handle_play(interaction, voice_service)
             case "skip":
-                await self._handle_skip(interaction, voice_service)
+                await self._handle_skip(interaction)
+
+    def _remove_session(self, guild_id: str) -> None:
+        session = self._sessions.pop(guild_id)
+        session.close()
+
+    async def _create_session(self, guild_id: str, channel_id: str, voice_service: VoiceService) -> _MusicSession:
+        voice_client = await voice_service.join_voice_channel(guild_id, channel_id, lambda: self._remove_session(guild_id))
+        session = _MusicSession(voice_client)
+        self._sessions[guild_id] = session
+        return session
 
     async def _handle_play(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
+        guild_id = interaction.guild_id
         media_task = asyncio.create_task(media_fetcher.fetch_media_for_query(interaction.options["query"]))
 
-        channel_id = await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id)
+        channel_id = await http_client.get_user_voice_channel(guild_id, interaction.user_id)
 
         if channel_id is None:
             media_task.cancel()
             await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
             return
 
-        voice_client = await voice_service.join_voice_channel(interaction.guild_id, channel_id)
+        session = self._sessions.get(guild_id)
 
-        if voice_client is None:
+        if session is None:
+            session = await self._create_session(guild_id, channel_id, voice_service)
+        elif session.channel_id != channel_id:
             media_task.cancel()
             await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
             return
@@ -36,19 +117,20 @@ class MusicPlayerBot(UserInteractionHandler):
             return
 
         asyncio.create_task(http_client.respond_interaction(interaction.id, interaction.token, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
-        await voice_client.enqueue_media(media)
+        asyncio.get_running_loop().run_in_executor(None, media.download)
+        session.add_to_queue(media)
 
-    async def _handle_skip(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
-        voice_client = voice_service.get_connected_voice_client(interaction.guild_id)
+    async def _handle_skip(self, interaction: UserInteraction) -> None:
+        session = self._sessions.get(interaction.guild_id)
 
-        if voice_client is None:
+        if session is None:
             await http_client.respond_interaction(interaction.id, interaction.token, "I'm not connected in this server", ephemeral=True)
             return
-        elif voice_client.channel_id != await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id):
+        elif session.channel_id != await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id):
             await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel I'm currently connected to", ephemeral=True)
             return
 
-        if voice_client.skip_current_media():
+        if session.skip_current():
             await http_client.respond_interaction(interaction.id, interaction.token, "Skipped")
         else:
             await http_client.respond_interaction(interaction.id, interaction.token, "Nothing to skip", ephemeral=True)

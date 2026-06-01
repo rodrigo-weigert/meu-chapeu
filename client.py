@@ -7,13 +7,15 @@ import json
 import random
 import websockets
 
-from typing import Dict, Any, Set, Protocol
+from typing import Dict, Any, Set, Protocol, Callable, Awaitable
 from config import config
 from voice_client import VoiceClient
 from logs import logger as base_logger
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 
 logger = base_logger.bind(context="GatewayClient")
+
+__all__ = ["Client", "UserInteraction", "VoiceService", "UserInteractionHandler", "MultipleVoiceCallsError"]
 
 
 @unique
@@ -94,10 +96,7 @@ class UserInteraction:
 
 
 class VoiceService(Protocol):
-    async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient | None:
-        ...
-
-    def get_connected_voice_client(self, guild_id: str) -> VoiceClient | None:
+    async def join_voice_channel(self, guild_id: str, channel_id: str, on_close: Callable[[], Any] | None = None) -> VoiceClient:
         ...
 
 
@@ -105,6 +104,10 @@ class UserInteractionHandler(ABC):
     @abstractmethod
     async def handle_interaction(self, interaction: UserInteraction, voice_service: VoiceService) -> None:
         ...
+
+
+class MultipleVoiceCallsError(Exception):
+    pass
 
 
 class Client:
@@ -147,18 +150,12 @@ class Client:
             self._closed = True
             await self._ws.close()
 
-    def get_connected_voice_client(self, guild_id: str) -> VoiceClient | None:
-        vc = self._voice_clients.get(guild_id)
-        if vc is not None and not vc.closed:
-            return vc
-        return None
-
-    async def join_voice_channel(self, guild_id: str, channel_id: str) -> VoiceClient | None:
-        existing_client = self.get_connected_voice_client(guild_id)
-        if existing_client is not None:
+    async def join_voice_channel(self, guild_id: str, channel_id: str, on_close: Callable[[], Any] | None = None) -> VoiceClient:
+        existing_client = self._voice_clients.get(guild_id)
+        if existing_client is not None and not existing_client.closed:
             if existing_client.channel_id == channel_id:
                 return existing_client
-            return None
+            raise MultipleVoiceCallsError(f"Cannot connect to channel {channel_id} of guild {guild_id}: already connected to channel {existing_client.channel_id}")
 
         state_future = asyncio.get_running_loop().create_future()
         server_future = asyncio.get_running_loop().create_future()
@@ -181,12 +178,19 @@ class Client:
                          server_resp["endpoint"],
                          state_resp["session_id"],
                          server_resp["token"],
-                         lambda: self._leave_voice_channel(guild_id))
+                         self._build_voice_on_close_fn(guild_id, on_close))
 
         logger.info(f"JOINED VOICE guild_id = {guild_id}, channel_id = {channel_id}")
         self._voice_clients[guild_id] = vc
         asyncio.create_task(vc.start())
         return vc
+
+    def _build_voice_on_close_fn(self, guild_id: str, user_on_close: Callable[[], Any] | None) -> Callable[[], Awaitable[Any]]:
+        async def on_close():
+            if user_on_close is not None:
+                user_on_close()
+            await self._leave_voice_channel(guild_id)
+        return on_close
 
     async def _send(self, op: _OpCode, data: Any) -> None:
         payload = {"op": op.value, "d": data}

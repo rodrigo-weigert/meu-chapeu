@@ -11,7 +11,6 @@ from typing import Any, List, Callable, Awaitable, Set, Dict
 from enum import IntEnum, unique
 from config import config
 from logs import logger as base_logger
-from concurrent.futures import ThreadPoolExecutor, Executor
 from media_file import MediaFile
 from dave.session import DaveSessionManager, DaveInvalidCommitException, TransitionType
 from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
@@ -100,12 +99,9 @@ class VoiceClient:
     _last_seq: int
     _rtp_nonce: int
     _closed: bool
-    _executor: Executor
     _session_ready: asyncio.Event
     _dave_session_ready: asyncio.Event
     _idle_timer: asyncio.Task | None
-    _player: asyncio.Task
-    _media_queue: asyncio.Queue
     _stop_event: threading.Event | None
     _dave_session_manager: DaveSessionManager
     _external_sender_ready: asyncio.Event
@@ -137,16 +133,19 @@ class VoiceClient:
         self._last_seq = -1
         self._rtp_nonce = random.getrandbits(32)
         self._closed = False
-        self._executor = ThreadPoolExecutor()
         self._session_ready = asyncio.Event()
         self._dave_session_ready = asyncio.Event()
         self._idle_timer = None
-        self._player = asyncio.create_task(self._play_loop())
-        self._media_queue = asyncio.Queue()
         self._stop_event = None
         self._dave_session_manager = DaveSessionManager(config.application_id)
         self._external_sender_ready = asyncio.Event()
         self._identified = False
+
+        self._start_idle_timer()
+
+    @property
+    def guild_id(self) -> str:
+        return self._guild_id
 
     @property
     def channel_id(self) -> str:
@@ -166,15 +165,53 @@ class VoiceClient:
         finally:
             await self._close()
 
-    async def enqueue_media(self, media: MediaFile) -> None:
-        asyncio.get_running_loop().run_in_executor(self._executor, media.download)
-        await self._media_queue.put(media)
+    async def play_audio(self, media_file: MediaFile) -> None:
+        if self._closed:
+            return
 
-    def skip_current_media(self) -> bool:
+        await self._ensure_ready()
+        self._stop_idle_timer()
+
+        downloaded = await self._ensure_downloaded(media_file)
+        if not downloaded:
+            logger.warning(f"Download of {media_file} was not successful, skipping")
+            self._start_idle_timer()
+            return
+
+        logger.info(f"Now playing {media_file}")
+        self._stop_event = threading.Event()
+        sent_packets = await asyncio.get_running_loop().run_in_executor(
+            None,
+            udp.stream_audio,
+            self._sock,
+            media_file,
+            self._ssrc,
+            self._audio_seq,
+            self._transport_encryption_key,
+            self._rtp_nonce,
+            self._transport_encryption_mode,
+            self._stop_event,
+            self._dave_session_manager,
+        )
+        self._audio_seq += sent_packets
+        self._rtp_nonce += sent_packets
+        self._stop_event = None
+        self._start_idle_timer()
+
+    def skip_current_audio(self) -> bool:
         if self._stop_event is not None:
             self._stop_event.set()
             return True
         return False
+
+    def _stop_idle_timer(self) -> None:
+        if self._idle_timer is not None:
+            self._idle_timer.cancel(msg="_stop_idle_timer() called")
+            self._idle_timer = None
+
+    def _start_idle_timer(self) -> None:
+        self._stop_idle_timer()
+        self._idle_timer = asyncio.create_task(self._disconnect_after_delay(config.idle_timeout))
 
     async def _send(self, op: _VoiceOpCode, data: Any) -> None:
         payload = {"op": op.value, "d": data}
@@ -250,51 +287,6 @@ class VoiceClient:
         logger.info("Waiting for session to be ready...")
         await self._session_ready.wait()
         await self._dave_session_ready.wait()
-
-    async def _play_song(self, media_file: MediaFile) -> None:
-        await self._ensure_ready()
-
-        logger.info(f"Now playing {media_file}")
-        self._stop_event = threading.Event()
-        sent_packets = await asyncio.get_running_loop().run_in_executor(
-            self._executor,
-            udp.stream_audio,
-            self._sock,
-            media_file,
-            self._ssrc,
-            self._audio_seq,
-            self._transport_encryption_key,
-            self._rtp_nonce,
-            self._transport_encryption_mode,
-            self._stop_event,
-            self._dave_session_manager,
-        )
-        self._audio_seq += sent_packets
-        self._rtp_nonce += sent_packets
-        self._stop_event = None
-
-    async def _play_loop(self) -> None:
-        try:
-            while True:
-                logger.info("Waiting for next song in queue...")
-
-                if self._media_queue.qsize() == 0:
-                    self._idle_timer = asyncio.create_task(self._disconnect_after_delay())
-
-                next_media = await self._media_queue.get()
-
-                if self._idle_timer is not None:
-                    self._idle_timer.cancel()
-                    self._idle_timer = None
-
-                logger.info(f"Waiting for download of {next_media} to complete...")
-                ready = await next_media.downloaded
-                if ready:
-                    await self._play_song(next_media)
-                else:
-                    logger.warning(f"Download of {next_media} did not succeed, skipping")
-        except asyncio.CancelledError:
-            logger.info("Play loop cancelled")
 
     async def _handle_session_description(self, event: _VoiceEvent) -> None:
         logger.log("IN", f"SESSION DESCRIPTION {event}")
@@ -505,24 +497,22 @@ class VoiceClient:
         if self._closed:
             return
         self._recv_loop.cancel(msg="Close method was called")
-        self._player.cancel(msg="Close method was called")
         await self._ws.close()
         if self._sock is not None:
             self._sock.close()
         await self._on_close()
-        if self._idle_timer is not None:
-            self._idle_timer.cancel()
+        self._stop_idle_timer()
         self._closed = True
 
-    async def _disconnect_after_delay(self) -> None:
-        logger.info("Idle timer started")
+    async def _disconnect_after_delay(self, delay: int) -> None:
+        logger.info(f"Disconnect timer started: {delay} seconds")
         try:
-            await asyncio.sleep(config.idle_timeout)
+            await asyncio.sleep(delay)
             if not self._closed:
-                logger.info(f"Bot was idle for {config.idle_timeout} seconds, disconnecting")
+                logger.info(f"Disconnect timer ended after {delay} seconds, disconnecting")
                 await self._close()
         except asyncio.CancelledError:
-            logger.info("Idle timer cancelled")
+            logger.info("Disconnect timer cancelled")
 
     _ALLOWED_RECONNECT_CLOSE_CODES: Set[int] = {1001, 1006, 4015}
 
@@ -533,3 +523,10 @@ class VoiceClient:
     @staticmethod
     def _kicked_or_call_terminated(exception: ConnectionClosed) -> bool:
         return exception.rcvd is not None and exception.rcvd.code in {4014, 4022}
+
+    @staticmethod
+    async def _ensure_downloaded(media_file: MediaFile) -> bool:
+        if media_file.downloaded.done():
+            return media_file.downloaded.result()
+        logger.info(f"Waiting for download of {media_file}")
+        return await media_file.downloaded
