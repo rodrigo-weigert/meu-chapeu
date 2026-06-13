@@ -8,9 +8,6 @@ from client import Client
 from intents import Intent
 from music_player_bot import MusicPlayerBot
 
-voice_client = None
-song_task = None
-
 
 def main():
     http_client.create_slash_command(commands.Play)

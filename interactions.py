@@ -1,6 +1,5 @@
 class InteractionType:
     CHANNEL_MESSAGE_WITH_SOURCE: int = 4
-    DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: int = 5
 
 
 class InteractionFlag:

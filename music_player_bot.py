@@ -99,7 +99,7 @@ class MusicPlayerBot(UserInteractionHandler):
 
         if channel_id is None:
             media_task.cancel()
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
+            await interaction.respond("You need to be in a channel I can join or have already joined, in the same server you called me.", ephemeral=True)
             return
 
         session = self._sessions.get(guild_id)
@@ -108,15 +108,15 @@ class MusicPlayerBot(UserInteractionHandler):
             session = await self._create_session(guild_id, channel_id, voice_service)
         elif session.channel_id != channel_id:
             media_task.cancel()
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel and server I'm currently connected to", ephemeral=True)
+            await interaction.respond("You need to be in the same channel and server I'm currently connected to", ephemeral=True)
             return
 
         media = await media_task
         if media is None:
-            await http_client.respond_interaction(interaction.id, interaction.token, "Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.", ephemeral=True)
+            await interaction.respond("Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.", ephemeral=True)
             return
 
-        asyncio.create_task(http_client.respond_interaction(interaction.id, interaction.token, f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
+        asyncio.create_task(interaction.respond(f"Adding [{media.title}]({media.link}) ({media.duration_str()}) to the queue"))
         asyncio.get_running_loop().run_in_executor(None, media.download)
         session.add_to_queue(media)
 
@@ -124,13 +124,13 @@ class MusicPlayerBot(UserInteractionHandler):
         session = self._sessions.get(interaction.guild_id)
 
         if session is None:
-            await http_client.respond_interaction(interaction.id, interaction.token, "I'm not connected in this server", ephemeral=True)
+            await interaction.respond("I'm not connected in this server", ephemeral=True)
             return
         elif session.channel_id != await http_client.get_user_voice_channel(interaction.guild_id, interaction.user_id):
-            await http_client.respond_interaction(interaction.id, interaction.token, "You need to be in the same channel I'm currently connected to", ephemeral=True)
+            await interaction.respond("You need to be in the same channel I'm currently connected to", ephemeral=True)
             return
 
         if session.skip_current():
-            await http_client.respond_interaction(interaction.id, interaction.token, "Skipped")
+            await interaction.respond("Skipped")
         else:
-            await http_client.respond_interaction(interaction.id, interaction.token, "Nothing to skip", ephemeral=True)
+            await interaction.respond("Nothing to skip", ephemeral=True)
