@@ -77,8 +77,8 @@ class UserInteraction:
     username: str
     options: Dict[str, str]
 
-    async def respond(self, message: str, ephemeral=False) -> bool:
-        return await http_client.respond_interaction(self.id, self.token, message, ephemeral)
+    async def respond(self, response: Dict[str, Any]) -> bool:
+        return await http_client.respond_interaction(self.id, self.token, response)
 
     @staticmethod
     def _parse_options(event: _Event) -> Dict[str, str]:

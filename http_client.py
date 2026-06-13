@@ -34,18 +34,13 @@ async def get_user_voice_channel(guild_id: str, user_id: str) -> str | None:
     return resp.get("channel_id")
 
 
-async def respond_interaction(id: str, token: str, message: str, ephemeral=False) -> bool:
+async def respond_interaction(id: str, token: str, response: Dict[str, Any]) -> bool:
     respond_url = f"/interactions/{id}/{token}/callback"
-    flags = InteractionFlag.SUPRESS_EMBEDS
 
     logger.log("OUT", f"RESPONDING INTERACTION {id}")
 
-    if ephemeral:
-        flags |= InteractionFlag.EPHEMERAL
-
     try:
-        resp = await _apost(respond_url, {"type": InteractionType.CHANNEL_MESSAGE_WITH_SOURCE,
-                                          "data": {"content": message, "flags": flags}})
+        resp = await _apost(respond_url, response)
     except httpx.TimeoutException as e:
         logger.warning(f"INTERACTION {id} RESPONSE TIMEOUT: {e}")
         return False
