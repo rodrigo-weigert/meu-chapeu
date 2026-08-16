@@ -4,21 +4,21 @@
 #
 #    pip-compile requirements.in
 #
-anyio==4.13.0
+anyio==4.14.2
     # via httpx
-certifi==2026.5.20
+certifi==2026.7.22
     # via
     #   httpcore
     #   httpx
-cffi==2.0.0
+cffi==2.1.1
     # via
     #   cryptography
     #   pynacl
 construct==2.10.70
     # via -r requirements.in
-cryptography==48.0.0
+cryptography==50.0.0
     # via -r requirements.in
-deno==2.8.1
+deno==2.9.5
     # via -r requirements.in
 h11==0.16.0
     # via httpcore
@@ -26,7 +26,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via -r requirements.in
-idna==3.17
+idna==3.18
     # via
     #   anyio
     #   httpx
@@ -40,13 +40,13 @@ pynacl==1.6.2
     # via -r requirements.in
 python-dotenv==1.2.2
     # via -r requirements.in
-typing-extensions==4.15.0
+typing-extensions==4.16.0
     # via anyio
 urllib3==2.7.0
     # via -r requirements.in
-websockets==16.0
+websockets==17.0.1
     # via -r requirements.in
-yt-dlp==2026.5.25.234532.dev0
+yt-dlp==2026.8.16.20253.dev0
     # via -r requirements.in
 yt-dlp-ejs==0.8.0
     # via -r requirements.in
