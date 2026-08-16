@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 import json
 from urllib.parse import urlencode
@@ -40,6 +41,10 @@ async def respond_interaction(id: str, token: str, response: Dict[str, Any]) -> 
 
     try:
         resp = await _apost(respond_url, response)
+        if resp.status_code == 404:
+            logger.warning(f"Got 404 while responding interaction {id} - retrying once")
+            await asyncio.sleep(1)
+            resp = await _apost(respond_url, response)
     except httpx.TimeoutException as e:
         logger.warning(f"INTERACTION {id} RESPONSE TIMEOUT: {e}")
         return False
