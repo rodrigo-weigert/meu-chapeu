@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.sh
+*.so
 .env
 .git
 .vscode
