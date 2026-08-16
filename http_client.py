@@ -5,7 +5,6 @@ from urllib.parse import urlencode
 from config import config
 from typing import Dict, Any
 from logs import logger as base_logger
-from interactions import InteractionType, InteractionFlag
 
 logger = base_logger.bind(context="HttpClient")
 
