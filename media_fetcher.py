@@ -144,4 +144,4 @@ async def fetch_media_for_query(user_query: str) -> MediaFile | None:
         _logger.error(f"Failed to retrieve data about video ID {video_id} for query '{user_query}'")
         return None
 
-    return await _build_media_file(video_id)
+    return media_file
