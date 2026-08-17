@@ -4,6 +4,7 @@ import opus
 from dataclasses import dataclass, field
 from typing import Callable, Iterator
 from pathlib import Path
+from datetime import datetime
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -13,6 +14,9 @@ class MediaFile:
     title: str
     thumbnail: str
     duration: int
+    views: int
+    likes: int
+    published_at: datetime
     link: str
     download_fn: Callable[[], bool] = field(repr=False)
     downloaded: asyncio.Future = field(init=False, repr=False)

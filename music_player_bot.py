@@ -79,10 +79,11 @@ def build_error_response(message: str) -> Dict[str, Any]:
 
 
 def build_media_response(media: MediaFile, user_id: str) -> Dict[str, Any]:
-    c = ContainerComponent([SectionComponent([
+    c = SectionComponent([
            TextComponent(f"### [{media.title}]({media.link})"),
-           TextComponent(f"**Duration:** {media.duration_str()}")],
-            accessory=ThumbnailComponent(media.thumbnail))])
+           TextComponent(f"Duration: {media.duration_str()}\n\n"),
+           TextComponent(f"-# Published: {media.published_at.strftime("%Y-%m-%d")}\tViews: {media.views:,}\tLikes: {media.likes:,}")],
+            accessory=ThumbnailComponent(media.thumbnail))
     return interactions.build_component_response([c], InteractionFlag.SUPPRESS_EMBEDS | InteractionFlag.IS_COMPONENTS_V2)
 
 

@@ -115,20 +115,23 @@ async def _get_video_id(user_query: str) -> str | None:
 
 
 async def _build_media_file(video_id: str) -> MediaFile | None:
-    params = {"part": ["snippet", "contentDetails"],
+    params = {"part": ["snippet", "contentDetails", "statistics"],
               "key": config.google_api_token,
               "id": video_id}
     headers = {"Accept": "application/json"}
     _logger.info(f"Fetching metadata for video ID {video_id}")
     res = await _client.get(_API_INFO_URL, headers=headers, params=params)
     if res.status_code == 200:
-        json = res.json()
+        data = res.json()["items"][0]
         return MediaFile(id=video_id,
                          file_path=_file_path(video_id),
                          link=_youtube_link(video_id),
-                         title=json["items"][0]["snippet"]["title"],
-                         thumbnail=json["items"][0]["snippet"]["thumbnails"]["default"]["url"],
-                         duration=int(isodate.parse_duration(json["items"][0]["contentDetails"]["duration"]).total_seconds()),
+                         title=data["snippet"]["title"],
+                         thumbnail=data["snippet"]["thumbnails"]["default"]["url"],
+                         duration=int(isodate.parse_duration(data["contentDetails"]["duration"]).total_seconds()),
+                         views=int(data["statistics"]["viewCount"]),
+                         likes=int(data["statistics"]["likeCount"]),
+                         published_at=isodate.parse_datetime(data["snippet"]["publishedAt"]),
                          download_fn=lambda: _download(video_id))
     return None
 
