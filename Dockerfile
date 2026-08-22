@@ -47,8 +47,8 @@ RUN ./configure \
   --disable-network \
   --disable-autodetect \
   --enable-protocol=file,pipe \
-  --enable-demuxer=matroska,ogg,mov \
-  --enable-decoder=opus,vorbis,aac \
+  --enable-demuxer=matroska,mov \
+  --enable-decoder=opus,aac \
   --enable-encoder=pcm_s16le \
   --enable-muxer=pcm_s16le \
   --enable-filter=aresample
