@@ -3,7 +3,7 @@ import http_client
 import media_fetcher
 import interactions
 
-from interactions import InteractionFlag, TextComponent, ThumbnailComponent, ContainerComponent, SectionComponent
+from interactions import InteractionFlag, TextComponent, ThumbnailComponent, SectionComponent
 from client import UserInteraction, UserInteractionHandler, VoiceService
 from voice_client import VoiceClient
 from media_file import MediaFile

@@ -18,7 +18,7 @@ _client = httpx.Client(headers=_headers)
 
 def get_gateway_url() -> str:
     base_url = _get("/gateway")["url"]
-    params = {"v": config.api_version, "encoding": config.encoding}
+    params = {"v": config.api_version, "encoding": "json"}
     return f"{base_url}?/{urlencode(params)}"
 
 
