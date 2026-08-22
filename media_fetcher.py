@@ -34,7 +34,8 @@ class _YoutubeDLLogger:
 
 
 _YDL_OPTS = {
-    'format': 'bestaudio/bestaudio*[height<=480]',
+    'format': 'bestaudio',
+    'fixup': 'never',
     'logger': _YoutubeDLLogger(),
     'outtmpl': str(_SAVE_DIR / "%(id)s"),
     'allowed_extractors': ["youtube"],
