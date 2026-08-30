@@ -3,6 +3,7 @@ import tempfile
 import urllib.parse
 import yt_dlp
 import isodate  # type: ignore[import-untyped]
+import re
 
 from logs import logger as base_logger
 from config import config
@@ -94,17 +95,25 @@ def _download(video_id: str) -> bool:
     return True
 
 
+def _is_youtube_url(netloc: str) -> bool:
+    return netloc.lower() in ["youtu.be", "www.youtube.com", "youtube.com"]
+
+
+def _validate_video_id(video_id: str | None) -> str | None:
+    if video_id is not None and re.fullmatch(r'[a-zA-Z0-9_-]{11}', video_id) is not None:
+        return video_id
+    return None
+
+
 def _video_id_from_url(user_query: str) -> str | None:
     parsed_url = urllib.parse.urlparse(user_query)
     parsed_qs = urllib.parse.parse_qs(parsed_url.query)
-    video_id = ""
 
-    if "v" in parsed_qs:
-        video_id = parsed_qs["v"][0]
-    elif parsed_url.netloc.lower() == "youtu.be":
-        video_id = parsed_url.path[1:]
-
-    return video_id if len(video_id) == 11 else None
+    if _is_youtube_url(parsed_url.netloc):
+        if "v" in parsed_qs:
+            return _validate_video_id(parsed_qs["v"][0])
+        return _validate_video_id(parsed_url.path[-11:])
+    return None
 
 
 async def _get_video_id(user_query: str) -> str | None:
