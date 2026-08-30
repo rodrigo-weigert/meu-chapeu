@@ -15,7 +15,7 @@ class MediaFile:
     thumbnail: str
     duration: int
     views: int
-    likes: int
+    likes: int | None
     published_at: datetime
     link: str
     download_fn: Callable[[], bool] = field(repr=False)

@@ -140,7 +140,7 @@ async def _build_media_file(video_id: str) -> MediaFile | None:
                          thumbnail=data["snippet"]["thumbnails"]["default"]["url"],
                          duration=int(isodate.parse_duration(data["contentDetails"]["duration"]).total_seconds()),
                          views=int(data["statistics"]["viewCount"]),
-                         likes=int(data["statistics"]["likeCount"]),
+                         likes=int(data["statistics"]["likeCount"]) if "likeCount" in data["statistics"] else None,
                          published_at=isodate.parse_datetime(data["snippet"]["publishedAt"]),
                          download_fn=lambda: _download(video_id))
     return None
