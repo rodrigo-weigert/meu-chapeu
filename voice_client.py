@@ -156,7 +156,13 @@ class VoiceClient:
         return self._closed
 
     async def start(self) -> None:
-        self._ws = await websockets.connect(self._url)
+        try:
+            self._ws = await websockets.connect(self._url)
+        except TimeoutError:
+            logger.error(f"Failed to establish voice websocket connection with {self._url}: timed out")
+            await self._close()
+            return
+
         try:
             self._recv_loop = asyncio.create_task(self._receive_loop())
             await self._recv_loop
@@ -496,9 +502,11 @@ class VoiceClient:
     async def _close(self) -> None:
         if self._closed:
             return
-        self._recv_loop.cancel(msg="Close method was called")
-        await self._ws.close()
-        if self._sock is not None:
+        if hasattr(self, "_recv_loop"):
+            self._recv_loop.cancel(msg="Close method was called")
+        if hasattr(self, "_ws"):
+            await self._ws.close()
+        if hasattr(self, "_sock"):
             self._sock.close()
         await self._on_close()
         self._stop_idle_timer()
