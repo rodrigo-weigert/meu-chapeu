@@ -16,7 +16,7 @@ cffi==2.1.1
     #   pynacl
 construct==2.10.70
     # via -r requirements.in
-cryptography==50.0.1
+cryptography==50.0.2
     # via -r requirements.in
 deno==2.9.7
     # via -r requirements.in
@@ -38,15 +38,15 @@ pycparser==3.0
     # via cffi
 pynacl==1.6.2
     # via -r requirements.in
-python-dotenv==1.2.3
+python-dotenv==1.2.4
     # via -r requirements.in
 typing-extensions==4.16.0
     # via anyio
 urllib3==2.8.0
     # via -r requirements.in
-websockets==17.1
+websockets==17.2
     # via -r requirements.in
-yt-dlp==2026.9.16.232951.dev0
+yt-dlp==2026.9.27.232945.dev0
     # via -r requirements.in
 yt-dlp-ejs==0.8.0
     # via -r requirements.in
