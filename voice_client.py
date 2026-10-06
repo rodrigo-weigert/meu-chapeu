@@ -502,6 +502,7 @@ class VoiceClient:
     async def _close(self) -> None:
         if self._closed:
             return
+        self._closed = True
         if hasattr(self, "_recv_loop"):
             self._recv_loop.cancel(msg="Close method was called")
         if hasattr(self, "_ws"):
@@ -510,7 +511,6 @@ class VoiceClient:
             self._sock.close()
         await self._on_close()
         self._stop_idle_timer()
-        self._closed = True
 
     async def _disconnect_after_delay(self, delay: int) -> None:
         logger.info(f"Disconnect timer started: {delay} seconds")
