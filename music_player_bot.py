@@ -88,11 +88,14 @@ def build_media_response(media: MediaFile, user_id: str) -> Dict[str, Any]:
     return interactions.build_component_response([c], InteractionFlag.SUPPRESS_EMBEDS | InteractionFlag.IS_COMPONENTS_V2)
 
 
+MAX_MEDIA_DURATION_MINUTES = 120
+
 CHANNEL_NOT_FOUND_RESPONSE = build_error_response("You need to be in a channel I can join or have already joined, in the same server you called me.")
 WRONG_CHANNEL_RESPONSE = build_error_response("You need to be in the same channel I'm currently connected to")
 MEDIA_NOT_FOUND_RESPONSE = build_error_response("Failed to find video. If you provided a link, it may be incorrect. If you used a search query, it may have returned no results.")
 NOTHING_TO_SKIP_RESPONSE = build_error_response("Nothing to skip")
 NO_SESSION_RESPONSE = build_error_response("I'm not connected in this server")
+MEDIA_DURATION_TOO_LONG_RESPONSE = build_error_response(f"Media duration should be less than {MAX_MEDIA_DURATION_MINUTES} minutes")
 SKIP_SUCCESSFUL_RESPONSE = build_string_response("Skipped")
 
 
@@ -142,6 +145,9 @@ class MusicPlayerBot(UserInteractionHandler):
         media = await media_task
         if media is None:
             await interaction.respond(MEDIA_NOT_FOUND_RESPONSE)
+            return
+        elif media.duration > MAX_MEDIA_DURATION_MINUTES * 60:
+            await interaction.respond(MEDIA_DURATION_TOO_LONG_RESPONSE)
             return
 
         asyncio.create_task(interaction.respond(build_media_response(media, interaction.user_id)))
